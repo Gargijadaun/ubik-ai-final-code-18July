@@ -9,7 +9,7 @@ import re
 import google.generativeai as genai
 
 # Configure Gemini API key
-genai.configure(api_key=os.getenv('AIzaSyA7a4zVbiKBUkHTwdEHNlTAmUao50TVAAg', 'AIzaSyA7a4zVbiKBUkHTwdEHNlTAmUao50TVAAg'))  # Replace with secure key
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
@@ -234,9 +234,7 @@ def chatbot_reply():
         print("Chat Error:", e)
         return jsonify({"reply": "Hmm, not sure about that one! What's next? 😄"})
 
-@app.route("/")
-def home():
-    return "Hello from Railway!"
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
