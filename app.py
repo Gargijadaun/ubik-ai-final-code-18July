@@ -234,6 +234,9 @@ def chatbot_reply():
         print("Chat Error:", e)
         return jsonify({"reply": "Hmm, not sure about that one! What's next? 😄"})
 
+@app.route("/")
+def home():
+    return "Hello from Railway!"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
