@@ -7,9 +7,17 @@ from sklearn.metrics.pairwise import cosine_similarity
 from difflib import SequenceMatcher
 import re
 import google.generativeai as genai
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configure Gemini API key
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+api_key = os.getenv("GOOGLE_API_KEY")
+if not api_key:
+    raise ValueError("GOOGLE_API_KEY is not set in the environment variables!")
+
+
+genai.configure(api_key=api_key)
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
