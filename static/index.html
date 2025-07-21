@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,7 +13,6 @@
       padding: 0;
       overflow-x: hidden;
     }
-
     .header {
       background-color: #ffffff;
       padding: 1rem;
@@ -26,31 +24,26 @@
       justify-content: space-between;
       align-items: center;
     }
-
     .header-logo {
       font-size: 1.5rem;
       font-weight: bold;
     }
-
     .header-logo span,
     .header-assist {
       color: #E91E63;
     }
-
     .header-assist {
       font-size: 1.3rem;
       font-weight: bold;
     }
-
     .container {
       max-width: 600px;
       margin: 0 auto;
       padding: 2rem;
       display: flex;
       flex-direction: column;
-      height: 90vh;
+      height: calc(100vh - 60px);
     }
-
     #avatar-container {
       width: 100%;
       height: 250px;
@@ -59,13 +52,11 @@
       overflow: hidden;
       margin-bottom: 1rem;
     }
-
     #avatar-canvas {
       width: 100%;
       height: 100%;
       display: block;
     }
-
     .chat-box {
       flex: 1;
       background-color: white;
@@ -76,7 +67,6 @@
       flex-direction: column;
       overflow: hidden;
     }
-
     .messages {
       flex: 1;
       overflow-y: auto;
@@ -84,16 +74,13 @@
       scrollbar-width: thin;
       scrollbar-color: #E91E63 #f0f0f0;
     }
-
     .messages::-webkit-scrollbar {
       width: 6px;
     }
-
     .messages::-webkit-scrollbar-thumb {
       background-color: #E91E63;
       border-radius: 10px;
     }
-
     .message {
       padding: 12px 16px;
       margin-bottom: 10px;
@@ -107,7 +94,6 @@
       display: flex;
       align-items: center;
     }
-
     .user {
       background-color: #e1f5fe;
       float: right;
@@ -115,14 +101,12 @@
       border-top-right-radius: 0;
       justify-content: flex-end;
     }
-
     .bot {
       background-color: #fce4ec;
       float: left;
       text-align: left;
       border-top-left-radius: 0;
     }
-
     .user::before,
     .bot::before {
       width: 28px;
@@ -139,18 +123,15 @@
       margin-right: 8px;
       flex: none;
     }
-
     .bot::before {
       content: 'A';
     }
-
     .user::before {
       content: 'U';
       order: 2;
       margin-left: 8px;
       margin-right: 0;
     }
-
     .input-area {
       background: #f9f9f9;
       border-radius: 30px;
@@ -160,7 +141,6 @@
       border: 1px solid #ddd;
       position: relative;
     }
-
     .input-area button {
       background: #E91E63;
       border: none;
@@ -173,7 +153,6 @@
       margin: 0 5px;
       cursor: pointer;
     }
-
     .input-area input[type="text"] {
       flex: 1;
       border: none;
@@ -181,17 +160,14 @@
       background: transparent;
       font-size: 16px;
     }
-
     .input-area img {
       width: 25px;
       height: 25px;
     }
-
     #waveform {
       margin-left: auto;
       display: none;
     }
-
     #waveform .dot {
       width: 12px;
       height: 12px;
@@ -199,30 +175,16 @@
       border-radius: 50%;
       animation: pulse 1s infinite;
     }
-
     @keyframes pulse {
-      0% {
-        transform: scale(1);
-        opacity: 0.8;
-      }
-
-      50% {
-        transform: scale(1.8);
-        opacity: 0.4;
-      }
-
-      100% {
-        transform: scale(1);
-        opacity: 0.8;
-      }
+      0% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.8); opacity: 0.4; }
+      100% { transform: scale(1); opacity: 0.8; }
     }
-
     .nav-buttons {
       display: flex;
       justify-content: space-between;
       margin-top: 1rem;
     }
-
     .nav-buttons button {
       flex: 1;
       margin: 0 5px;
@@ -236,58 +198,37 @@
       cursor: pointer;
       border: 2px solid #E91E63;
     }
-
     .nav-buttons button.active {
       background-color: #E91E63;
       color: white;
     }
   </style>
 </head>
-
 <body>
   <header class="header">
     <div class="header-logo">UBIK <span>SOLUTIONS</span></div>
     <div class="header-assist">AI <span>ASSIST</span></div>
   </header>
-
   <div class="container">
     <div id="avatar-container">
       <canvas id="avatar-canvas"></canvas>
     </div>
-
     <div class="chat-box">
       <div id="messages" class="messages"></div>
       <div class="input-area">
         <input type="text" id="userInput" placeholder="Type your question here..." />
-        <button onclick="sendMessage()"><img src="send.png" alt="Send"></button>
-        <button onclick="startListening()"><img src="mic.png" alt="Mic"></button>
+        <button onclick="sendMessage()"><img src="/static/send.png" alt="Send"></button>
+        <button onclick="startListening()"><img src="/static/mic.png" alt="Mic"></button>
         <div id="waveform">
           <div class="dot"></div>
         </div>
       </div>
     </div>
-
     <div class="nav-buttons">
       <button id="assistBtn" class="active" onclick="switchTab('assist')">AI Assist</button>
       <button id="dermatBtn" onclick="switchTab('dermat')">AI Dermat</button>
     </div>
   </div>
-
-  <script>
-    function switchTab(tab) {
-      const assistBtn = document.getElementById('assistBtn');
-      const dermatBtn = document.getElementById('dermatBtn');
-      if (tab === 'assist') {
-        assistBtn.classList.add('active');
-        dermatBtn.classList.remove('active');
-        location.href = '/';
-      } else {
-        dermatBtn.classList.add('active');
-        assistBtn.classList.remove('active');
-        location.href = '/quiz-instruction';
-      }
-    }
-  </script>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -297,17 +238,12 @@
     let mixer, clock = new THREE.Clock();
     let animations = {};
     let rootBone = null;
-    let isSpeaking = false; // Track if chatbot is speaking
-    let isListening = false; // Track if speech recognition is active
-    let morphInfluences = null;
-    let morphDict = null;
 
     function loadModelAnimations(gltf) {
       mixer = new THREE.AnimationMixer(gltf.scene);
       gltf.animations.forEach(clip => {
         if (["idle"].includes(clip.name)) {
           animations[clip.name] = mixer.clipAction(clip);
-          animations[clip.name].setLoop(THREE.LoopRepeat);
         }
       });
       gltf.scene.traverse(child => {
@@ -315,56 +251,21 @@
           rootBone = child;
         }
       });
-      if (animations.idle) {
-        animations.idle.play();
-        console.log("Playing idle animation on load");
-      } else {
-        console.warn("Idle animation not found");
-      }
+      animations.idle.play();
     }
 
     function playRandomTalkingAnimation() {
-      if (!mixer || !morphDict || !morphInfluences) return;
-      playIdleAnimation(); // Play idle animation as base
-      clearInterval(window.mouthInterval);
-      let t = 0;
-      window.mouthInterval = setInterval(() => {
-        t += 0.5;
-        const mouthOpenValue = Math.abs(Math.sin(t)) * 0.8; // Oscillate mouthOpen
-        const mouthSmileValue = Math.random() * 0.3; // Subtle random smile
-        if (morphDict['mouthOpen'] !== undefined) {
-          morphInfluences[morphDict['mouthOpen']] = mouthOpenValue;
-        }
-        if (morphDict['mouthSmile'] !== undefined) {
-          morphInfluences[morphDict['mouthSmile']] = mouthSmileValue;
-        }
-        console.log(`Speaking animation: mouthOpen=${mouthOpenValue}, mouthSmile=${mouthSmileValue}`);
-      }, 80);
-    }
-
-    function playIdleAnimation() {
       if (!mixer) return;
-      Object.values(animations).forEach(anim => anim.stop());
-      if (animations.idle) {
-        animations.idle.play();
-        console.log("Playing idle animation");
-      } else {
-        console.warn("Idle animation not found");
-      }
-      // Reset mouth animations but keep eye blinking
-      if (morphDict && morphInfluences) {
-        if (morphDict['mouthOpen'] !== undefined) {
-          morphInfluences[morphDict['mouthOpen']] = 0;
-        }
-        if (morphDict['mouthSmile'] !== undefined) {
-          morphInfluences[morphDict['mouthSmile']] = 0;
-        }
-      }
-      clearInterval(window.mouthInterval);
+      const talkingClips = [animations.idle];
+      const randomClip = talkingClips[Math.floor(Math.random() * talkingClips.length)];
+      randomClip.reset().play();
     }
 
     function stopTalkingAnimations() {
-      playIdleAnimation(); // Revert to idle
+      ["idle"].forEach(name => {
+        if (animations[name]) animations[name].stop();
+      });
+      if (animations.idle) animations.idle.play();
     }
 
     function animateAvatar() {
@@ -378,17 +279,12 @@
     animateAvatar();
 
     let model, renderer, camera, scene;
-
     function initAvatar() {
       const canvas = document.getElementById('avatar-canvas');
       const container = document.getElementById('avatar-container');
       const bounds = container.getBoundingClientRect();
 
-      renderer = new THREE.WebGLRenderer({
-        canvas: canvas,
-        antialias: true,
-        alpha: true
-      });
+      renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
       renderer.setSize(bounds.width, bounds.height);
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.outputEncoding = THREE.sRGBEncoding;
@@ -412,30 +308,18 @@
       controls.update();
 
       const loader = new THREE.GLTFLoader();
-      loader.load('AsianCharacter_14thJuly_TextureBaked_AnimUpdate_8_1_16thjuly.glb', function (gltf) {
+      loader.load('/static/AsianCharacter_14thJuly_TextureBaked_AnimUpdate_8_1_16thJuly.glb', function (gltf) {
         model = gltf.scene;
         model.position.set(0, 2, 0);
         model.rotation.set(0, 0, 0);
         model.scale.set(3, 3, 3);
         scene.add(model);
 
-        // Apply one-time camera rotation around Z-axis (negative direction)
-        const radius = Math.sqrt(camera.position.x ** 2 + (camera.position.y - controls.target.y) ** 2);
-        const initialAngle = Math.atan2(camera.position.y - controls.target.y, camera.position.x);
-        const rotationAngle = -Math.PI / 4;
-        camera.position.x = controls.target.x + radius * Math.cos(initialAngle + rotationAngle);
-        camera.position.y = controls.target.y + radius * Math.sin(initialAngle + rotationAngle);
-        camera.position.z = 30;
-        controls.update();
-
         const textureLoader = new THREE.TextureLoader();
-        const emissiveTexture = textureLoader.load('/teeth.png');
-
+        const emissiveTexture = textureLoader.load('/static/teeth.png');
         model.traverse((child) => {
           if (child.name === 'Asian_female_hair001') {
-            console.log("✅ Hair material modified on:", child.name);
             const oldMat = child.material;
-
             const newHairMaterial = oldMat.clone();
             newHairMaterial.side = THREE.DoubleSide;
             newHairMaterial.transparent = true;
@@ -447,7 +331,6 @@
             newHairMaterial.name = 'Asian_female_hair_modified';
             child.material = newHairMaterial;
             child.material.needsUpdate = true;
-            console.log("✅ Applied hair material:", newHairMaterial);
           }
         });
 
@@ -461,47 +344,33 @@
         });
 
         if (skinnedMesh) {
-          morphDict = skinnedMesh.morphTargetDictionary;
-          morphInfluences = skinnedMesh.morphTargetInfluences;
+          const morphDict = skinnedMesh.morphTargetDictionary;
+          const morphInfluences = skinnedMesh.morphTargetInfluences;
           window.morphDict = morphDict;
           window.morphInfluences = morphInfluences;
 
-          console.log("Morph targets available:", Object.keys(morphDict)); // Log morph target names
-
-          // Continuous eye blinking
-          if (morphDict['eyesClosed'] !== undefined) {
-            const eyeIndex = morphDict['eyesClosed'];
-            function blinkEyes() {
-              morphInfluences[eyeIndex] = 1;
-              setTimeout(() => {
-                morphInfluences[eyeIndex] = 0;
-              }, 100);
-              // Schedule next blink
-              setTimeout(blinkEyes, 3000 + Math.random() * 2000); // Random interval between 3-5 seconds
-            }
-            blinkEyes(); // Start blinking immediately
-          } else {
-            console.warn("eyesClosed morph target not found");
-          }
-
-          // Initialize mouthSmile
-          if (morphDict['mouthSmile'] !== undefined) {
+          if ('mouthSmile' in morphDict) {
             morphInfluences[morphDict['mouthSmile']] = 0.3;
           }
-        } else {
-          console.warn("No skinned mesh with morph targets found");
+
+          if ('eyesClosed' in morphDict) {
+            function blinkEyes(i) {
+              morphInfluences[i] = 1;
+              setTimeout(() => morphInfluences[i] = 0, 100);
+            }
+
+            const eyeIndex = morphDict['eyesClosed'];
+            setInterval(() => {
+              blinkEyes(eyeIndex);
+            }, 5000 + Math.random() * 2000);
+          }
         }
 
         function animate() {
           requestAnimationFrame(animate);
           controls.update();
           renderer.render(scene, camera);
-          if (model) {
-            const box = new THREE.Box3().setFromObject(model);
-            const center = box.getCenter(new THREE.Vector3());
-          }
         }
-
         animate();
       }, undefined, function (error) {
         console.error('Error loading GLB model:', error);
@@ -518,57 +387,56 @@
     initAvatar();
 
     function startMouthAnimation() {
-      playRandomTalkingAnimation(); // Use blend shapes for speaking
+      if (!window.morphDict || !window.morphInfluences) return;
+      const index = window.morphDict['mouthOpen'];
+      if (index === undefined) return;
+
+      let t = 0;
+      clearInterval(window.mouthInterval);
+      window.mouthInterval = setInterval(() => {
+        t += 0.5;
+        const amplitude = 1.0;
+        const value = Math.abs(Math.sin(t)) * amplitude;
+        window.morphInfluences[index] = value;
+      }, 80);
     }
 
     function stopMouthAnimation() {
-      stopTalkingAnimations(); // Reset mouth blend shapes and revert to idle
+      const i = window.morphDict?.mouthOpen;
+      if (i !== undefined) window.morphInfluences[i] = 0;
+      clearInterval(window.mouthInterval);
     }
-  </script>
 
-  <script>
     const messagesDiv = document.getElementById('messages');
     const synth = window.speechSynthesis;
-
-    // Prioritize female voices
-    let preferredVoiceName = 'Microsoft Zira Desktop';
+    let preferredVoiceName = 'Google US English';
 
     function getPreferredVoice() {
       const voices = synth.getVoices();
-      console.log('Available voices:', voices.map(v => ({ name: v.name, lang: v.lang })));
-      const femaleVoice = voices.find(v => v.name === preferredVoiceName) ||
-                         voices.find(v => /zira|female|woman|google us english|eva|emma|susan|aria|jenny|allison|ava/i.test(v.name)) ||
-                         voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang) && !/david|mark|male|guy|daniel|richard|george/i.test(v.name)) ||
-                         voices[0];
-      console.log('Selected voice:', femaleVoice?.name || 'None');
-      return femaleVoice;
+      const selectedVoice = voices.find(v => v.name === preferredVoiceName);
+      return selectedVoice || voices.find(v => /female|woman|zira|susan|google us english/i.test(v.name)) || voices[0];
     }
 
-    function speakText(text) {
-      const noEmojiText = text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
-      const utter = new SpeechSynthesisUtterance(noEmojiText);
-      const selectedVoice = getPreferredVoice();
-      console.log('Using voice for TTS:', selectedVoice?.name || 'None');
-      if (!selectedVoice) {
-        console.warn('No voice available for TTS');
-        return;
+    async function generateElevenLabsAudio(text) {
+      try {
+        const response = await fetch('/generate-audio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, voice: 'female' })
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Audio generation failed: ${response.status} - ${errorText}`);
+        }
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      } catch (error) {
+        console.error('Audio generation failed:', error);
+        return null;
       }
-      utter.voice = selectedVoice;
-      utter.rate = 0.9;
-      utter.pitch = 1.0;
-      utter.onstart = () => {
-        isSpeaking = true;
-        startMouthAnimation(); // Triggers playRandomTalkingAnimation
-      };
-      utter.onend = () => {
-        isSpeaking = false;
-        if (!isListening) playIdleAnimation();
-        stopMouthAnimation();
-      };
-      synth.speak(utter);
     }
 
-    function appendMessage(text, sender) {
+    function appendMessage(text, sender, audioUrl = null) {
       const msg = document.createElement('div');
       msg.className = `message ${sender}`;
       msg.textContent = text;
@@ -576,7 +444,33 @@
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
       if (sender === 'bot') {
-        speakText(text); // Triggers startMouthAnimation
+        playRandomTalkingAnimation();
+        startMouthAnimation();
+        if (audioUrl) {
+          const audio = new Audio(audioUrl);
+          audio.onended = () => {
+            stopTalkingAnimations();
+            stopMouthAnimation();
+          };
+          audio.play().catch(err => {
+            console.error("Audio playback error:", err);
+            speakWithFallback(text);
+          });
+        } else {
+          speakWithFallback(text);
+        }
+      }
+
+      function speakWithFallback(text) {
+        const noEmojiText = text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
+        const utter = new SpeechSynthesisUtterance(noEmojiText);
+        const selectedVoice = getPreferredVoice();
+        utter.voice = selectedVoice;
+        utter.onend = () => {
+          stopTalkingAnimations();
+          stopMouthAnimation();
+        };
+        synth.speak(utter);
       }
     }
 
@@ -585,27 +479,29 @@
       const text = input.value.trim();
       if (!text) return;
 
-      console.log('User input:', text);
       appendMessage(text, 'user');
       input.value = '...';
 
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text })
         });
-
+        if (!res.ok) {
+          throw new Error(`Chat API request failed: ${res.status} - ${await res.text()}`);
+        }
         const data = await res.json();
-        console.log('Server response:', data);
-        const reply = data.reply || "Sorry, something went wrong.";
-        appendMessage(reply, 'bot');
+        const reply = data.reply || data.error || "Sorry, something went wrong.";
+        if (!reply || typeof reply !== 'string') {
+          throw new Error('Invalid response from server');
+        }
+        const audioUrl = await generateElevenLabsAudio(reply);
+        appendMessage(reply, 'bot', audioUrl);
         input.value = '';
       } catch (err) {
         console.error('Chat API error:', err);
-        appendMessage("Sorry, something went wrong.", 'bot');
+        appendMessage("Sorry, something went wrong. Please try again! 😔", 'bot');
         input.value = '';
       }
     }
@@ -625,8 +521,6 @@
 
     function startListening() {
       recognition.start();
-      isListening = true;
-      playIdleAnimation(); // Play idle when user speaks
       document.getElementById('waveform').style.display = 'block';
     }
 
@@ -637,41 +531,51 @@
         'you big': 'ubik',
         'q big': 'ubik',
         'ubiq': 'ubik',
-        'Rubik': 'ubik',
+        'rubik': 'ubik',
+        'ubikx': 'ubik',
+        'ubikz': 'ubik',
+        'ubiqs': 'ubik',
+        'ubiksolution': 'ubik solutions',
+        'ubiksolutionz': 'ubik solutions',
+        'ubique': 'ubik'
       };
-
       for (let wrong in replacements) {
         const pattern = new RegExp(`\\b${wrong}\\b`, 'gi');
         transcript = transcript.replace(pattern, replacements[wrong]);
       }
-
       document.getElementById('userInput').value = transcript;
       sendMessage();
-      isListening = false;
-      if (!isSpeaking) playIdleAnimation(); // Revert to idle unless speaking
       document.getElementById('waveform').style.display = 'none';
     };
 
     recognition.onerror = function (event) {
       console.error('Speech recognition error:', event.error);
       appendMessage("Couldn't hear properly. Try again.", 'bot');
-      isListening = false;
-      if (!isSpeaking) playIdleAnimation();
       document.getElementById('waveform').style.display = 'none';
     };
 
     recognition.onend = function () {
-      isListening = false;
-      if (!isSpeaking) playIdleAnimation();
       document.getElementById('waveform').style.display = 'none';
     };
 
-    // Ensure voices are loaded before using them
     synth.onvoiceschanged = () => {
       const voice = getPreferredVoice();
-      console.log('Selected voice on voiceschanged:', voice?.name || 'None');
+      console.log('Selected voice:', voice?.name);
     };
+
+    function switchTab(tab) {
+      const assistBtn = document.getElementById('assistBtn');
+      const dermatBtn = document.getElementById('dermatBtn');
+      if (tab === 'assist') {
+        assistBtn.classList.add('active');
+        dermatBtn.classList.remove('active');
+        location.href = '/';
+      } else {
+        dermatBtn.classList.add('active');
+        assistBtn.classList.remove('active');
+        location.href = '/quiz-instruction';
+      }
+    }
   </script>
 </body>
-
 </html>

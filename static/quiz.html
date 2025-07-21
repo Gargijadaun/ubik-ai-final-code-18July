@@ -27,7 +27,6 @@
     .header-logo span {
       color: #E91E63;
     }
-
     .container {
       max-width: 600px;
       margin: auto;
@@ -35,7 +34,6 @@
       display: flex;
       flex-direction: column;
     }
-
     #avatar-container {
       width: 100%;
       height: 250px;
@@ -44,13 +42,11 @@
       overflow: hidden;
       position: relative;
     }
-
     #avatar-canvas {
       width: 100%;
       height: 100%;
       display: block;
     }
-
     .quiz-buttons {
       display: flex;
       justify-content: center;
@@ -59,7 +55,6 @@
       margin-top: 1rem;
       margin-bottom: 1rem;
     }
-
     .quiz-buttons button {
       display: flex;
       align-items: center;
@@ -74,34 +69,28 @@
       transition: background 0.2s ease;
       gap: 8px;
     }
-
     .quiz-buttons button:hover {
       background-color: #d81b60;
     }
-
     .quiz-buttons .icon {
       width: 20px;
       height: 20px;
     }
-
     .quiz-box {
       background: white;
       border-radius: 12px;
       padding: 1rem;
       box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
     }
-
     .question-area h2 {
       font-size: 20px;
       font-weight: bold;
       margin-bottom: 0.5rem;
     }
-
     .question-area p {
       font-size: 16px;
       margin-bottom: 1rem;
     }
-
     .input-area {
       display: flex;
       align-items: center;
@@ -110,7 +99,6 @@
       border-radius: 30px;
       padding: 8px 12px;
     }
-
     .input-area textarea {
       flex: 1;
       font-size: 16px;
@@ -121,7 +109,6 @@
       resize: none;
       height: 50px;
     }
-
     .input-area button {
       background: #E91E63;
       border: none;
@@ -134,18 +121,15 @@
       margin-left: 5px;
       cursor: pointer;
     }
-
     .input-area img {
       width: 20px;
       height: 20px;
     }
-
     .nav-buttons {
       display: flex;
       justify-content: space-between;
       margin-top: 1.5rem;
     }
-
     .nav-buttons button {
       flex: 1;
       margin: 0 5px;
@@ -158,12 +142,10 @@
       border: 2px solid #E91E63;
       cursor: pointer;
     }
-
     .nav-buttons button.active {
       background-color: #E91E63;
       color: white;
     }
-
     .results {
       margin-top: 1rem;
       background: #fce4ec;
@@ -172,12 +154,24 @@
       display: none;
       border-left: 4px solid #E91E63;
     }
-
+    .results button {
+      background-color: #E91E63;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-weight: 500;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    .results button:hover {
+      background-color: #d81b60;
+    }
     #waveform {
       display: none;
       margin-left: 10px;
     }
-
     #waveform .dot {
       width: 12px;
       height: 12px;
@@ -185,28 +179,22 @@
       border-radius: 50%;
       animation: pulse 1s infinite;
     }
-
     @keyframes pulse {
       0% { transform: scale(1); opacity: 0.8; }
       50% { transform: scale(1.8); opacity: 0.4; }
       100% { transform: scale(1); opacity: 0.8; }
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
   <header class="header">
     <div class="header-logo">UBIK <span>SOLUTIONS</span></div>
     <div class="header-logo">AI <span>DERMAT</span></div>
   </header>
-
   <div class="container">
     <div id="avatar-container">
       <canvas id="avatar-canvas"></canvas>
     </div>
-
     <div class="quiz-buttons">
       <button onclick="repeatQuestion()">
         <img src="/static/repeat.png" alt="Repeat" class="icon" /> Repeat
@@ -218,31 +206,29 @@
         <img src="/static/skip.png" alt="Skip" class="icon" /> Skip
       </button>
     </div>
-
     <div class="quiz-box">
       <div id="question-area" class="question-area">
         <h2>Question <span id="questionNumber">1</span></h2>
         <p id="questionText">Loading question...</p>
       </div>
-
       <div class="input-area">
         <textarea id="answerInput" placeholder="Type your answer or use voice..."></textarea>
         <button onclick="submitAnswer()"><img src="/static/send.png" alt="Send"></button>
         <div id="waveform"><div class="dot"></div></div>
       </div>
-
       <div id="results" class="results">
         <h3>Results</h3>
         <div id="feedback"></div>
       </div>
     </div>
-
     <div class="nav-buttons">
       <button onclick="location.href='/'">AI Assist</button>
       <button class="active" onclick="location.href='/quiz'">AI Dermat</button>
     </div>
   </div>
-
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script>
     let mixer, clock = new THREE.Clock();
     let animations = {};
@@ -251,51 +237,33 @@
 
     function loadModelAnimations(gltf) {
       mixer = new THREE.AnimationMixer(gltf.scene);
-      console.log("Available animations:", gltf.animations.map(clip => clip.name));
       if (gltf.animations.length > 0) {
-        animations.Idle = mixer.clipAction(gltf.animations[0]);
-        animations.Idle.setLoop(THREE.LoopRepeat);
+        const clip = gltf.animations[0];
+        animations.Idle = mixer.clipAction(clip);
         animations.Idle.play();
-        console.log(`Playing first animation: ${gltf.animations[0].name}`);
-      } else {
-        console.warn("No animations found in GLB file.");
       }
       gltf.scene.traverse(child => {
         if (child.isBone && child.name.toLowerCase().includes("root")) {
           rootBone = child;
         }
       });
-      console.log("Loaded animations:", Object.keys(animations));
     }
 
-    function playTalkingAnimation() {
-      if (!mixer || !animations.Idle) {
-        console.warn("No animation available for talking, using blend shapes only");
-        return;
-      }
-      animations.Idle.play();
-      console.log("Playing animation for talking");
-    }
-
-    function stopTalkingAnimation() {
+    function playRandomTalkingAnimation() {
+      if (!mixer) return;
       if (animations.Idle) {
-        animations.Idle.play();
-        console.log("Ensuring animation is playing");
-      } else {
-        console.log("No animation to play");
+        animations.Idle.reset().play();
       }
+    }
+
+    function stopTalkingAnimations() {
+      if (animations.Idle) animations.Idle.play();
     }
 
     function startMouthAnimation() {
-      if (!morphDict || !morphInfluences) {
-        console.warn("No morph targets available");
-        return;
-      }
+      if (!morphDict || !morphInfluences) return;
       const index = morphDict['mouthOpen'];
-      if (index === undefined) {
-        console.warn("mouthOpen blend shape not found");
-        return;
-      }
+      if (index === undefined) return;
       clearInterval(window.mouthInterval);
       window.mouthInterval = setInterval(() => {
         const t = performance.now() / 100;
@@ -305,24 +273,15 @@
     }
 
     function stopMouthAnimation() {
-      if (morphDict && morphInfluences && morphDict['mouthOpen'] !== undefined) {
-        morphInfluences[morphDict['mouthOpen']] = 0;
-      }
+      const i = morphDict?.mouthOpen;
+      if (i !== undefined) morphInfluences[i] = 0;
       clearInterval(window.mouthInterval);
-      console.log("Stopped mouth animation");
     }
 
     function animateAvatar() {
       requestAnimationFrame(animateAvatar);
       const delta = clock.getDelta();
-      if (mixer) {
-        try {
-          mixer.update(delta);
-          console.log("Animation mixer updated");
-        } catch (error) {
-          console.error("Error updating animation mixer:", error);
-        }
-      }
+      if (mixer) mixer.update(delta);
       if (rootBone) rootBone.rotation.y = 0;
     }
     animateAvatar();
@@ -337,11 +296,7 @@
       camera = new THREE.PerspectiveCamera(30, bounds.width / bounds.height, 0.01, 5000);
       camera.position.set(0, 0, 3.5);
 
-      renderer = new THREE.WebGLRenderer({
-        canvas: canvas,
-        antialias: true,
-        alpha: true
-      });
+      renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
       renderer.setSize(bounds.width, bounds.height);
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.outputEncoding = THREE.sRGBEncoding;
@@ -353,19 +308,18 @@
       const controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
-      controls.target.set(0, 0, 0);
       controls.enableZoom = false;
       controls.enablePan = false;
       controls.enableRotate = false;
+      controls.target.set(0, 0, 0);
       controls.update();
 
       const loader = new THREE.GLTFLoader();
-      loader.load('static/male_char_LightBaked_15thJuly.glb', function (gltf) {
+      loader.load('/static/male_char_LightBaked_15thJuly.glb', function (gltf) {
         model = gltf.scene;
         model.position.set(0, -4.7, 0);
         model.rotation.set(0, 0.1, 0);
         model.scale.set(3, 3, 3);
-        console.log('Model Position after setting:', model.position);
         scene.add(model);
 
         loadModelAnimations(gltf);
@@ -380,43 +334,26 @@
         if (skinnedMesh) {
           morphDict = skinnedMesh.morphTargetDictionary;
           morphInfluences = skinnedMesh.morphTargetInfluences;
-          console.log("Available morph targets:", Object.keys(morphDict));
-
           if ('mouthSmile' in morphDict) {
             morphInfluences[morphDict['mouthSmile']] = 0.3;
-            console.log("Applied mouthSmile blend shape");
           }
-
           if ('eyesClosed' in morphDict) {
             function blinkEyes(i) {
               morphInfluences[i] = 1;
               setTimeout(() => morphInfluences[i] = 0, 100);
-              console.log("Eyes blinked");
             }
-
             const eyeIndex = morphDict['eyesClosed'];
             setInterval(() => {
               blinkEyes(eyeIndex);
             }, 5000 + Math.random() * 2000);
           }
-        } else {
-          console.warn("No skinned mesh with morph targets found");
         }
-
-        const box = new THREE.Box3().setFromObject(model);
-        const center = box.getCenter(new THREE.Vector3());
-        console.log('Initial Center Point:', center);
 
         function animate() {
           requestAnimationFrame(animate);
           controls.update();
           renderer.render(scene, camera);
-          if (model) {
-            const box = new THREE.Box3().setFromObject(model);
-            const center = box.getCenter(new THREE.Vector3());
-          }
         }
-
         animate();
       }, undefined, function (error) {
         console.error('Error loading GLB model:', error);
@@ -435,7 +372,6 @@
     let questions = [];
     let answers = {};
     const totalQuestions = 5;
-    const synth = window.speechSynthesis;
 
     function switchTab(tab) {
       const assistBtn = document.getElementById('assistBtn');
@@ -449,33 +385,6 @@
         assistBtn.classList.remove('active');
         location.href = '/quiz';
       }
-    }
-
-    function selectVoice(utter) {
-      const voices = synth.getVoices();
-      console.log('Available voices:', voices.map(v => ({ name: v.name, lang: v.lang })));
-      const maleVoice = voices.find(v => /david|mark|male|guy|daniel|richard|george|google us english male/i.test(v.name.toLowerCase())) ||
-                        voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang)) ||
-                        voices[0];
-      utter.voice = maleVoice;
-      utter.rate = 0.9;
-      utter.pitch = 1.0;
-      console.log('Selected voice:', maleVoice?.name || 'None');
-    }
-
-    function speakQuestion(text) {
-      const noEmojiText = text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
-      const utter = new SpeechSynthesisUtterance(noEmojiText);
-      selectVoice(utter);
-      utter.onstart = () => {
-        playTalkingAnimation();
-        startMouthAnimation();
-      };
-      utter.onend = () => {
-        stopTalkingAnimation();
-        stopMouthAnimation();
-      };
-      synth.speak(utter);
     }
 
     function displayQuestion() {
@@ -496,13 +405,39 @@
       }
     }
 
+    function speakQuestion(text) {
+      fetch('/generate-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: 'male' })
+      })
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to fetch audio");
+        return res.blob();
+      })
+      .then(blob => {
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        audio.onplay = () => {
+          playRandomTalkingAnimation();
+          startMouthAnimation();
+        };
+        audio.onended = () => {
+          stopTalkingAnimations();
+          stopMouthAnimation();
+        };
+        audio.play();
+      })
+      .catch(err => {
+        console.error("Error with audio:", err);
+      });
+    }
+
     function submitAnswer() {
-      const answer = document.getElementById('answerInput').value.trim();
-      if (answer) {
-        answers[currentQuestion] = answer;
-        currentQuestion++;
-        displayQuestion();
-      }
+      const answer = document.getElementById('answerInput').value.trim() || 'SKIPPED';
+      answers[currentQuestion] = answer;
+      currentQuestion++;
+      displayQuestion();
     }
 
     function skipQuestion() {
@@ -538,24 +473,22 @@
     };
 
     fetch('/api/questions')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch questions: ${res.status}`);
+        return res.json();
+      })
       .then(data => {
-        questions = data.map(q => {
-          if (!q.startsWith('How') && !q.startsWith('What') && !q.startsWith('Why')) {
-            return `How does UBIK Solutions ensure ${q.toLowerCase()}?`;
-          }
-          return q;
-        });
+        questions = data;
         displayQuestion();
-      }).catch(err => {
+      })
+      .catch(err => {
         console.error('Error fetching questions:', err);
-        document.getElementById('questionText').textContent = 'Error loading questions.';
+        document.getElementById('questionText').textContent = 'Failed to load questions.';
       });
 
     function evaluateQuiz() {
       let totalScore = 0;
       const feedback = {};
-
       Promise.all(Object.keys(answers).map(async (qIndex) => {
         const question = questions[qIndex];
         const answer = answers[qIndex];
@@ -564,6 +497,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ question, answer })
         });
+        if (!response.ok) {
+          throw new Error(`Evaluation failed for question ${qIndex}`);
+        }
         const data = await response.json();
         feedback[qIndex] = data.feedback;
         totalScore += data.score || 0;
@@ -573,14 +509,35 @@
         for (let i in feedback) {
           resultText += `Question ${parseInt(i) + 1}: ${feedback[i]}<br>`;
         }
+        resultText += `<br><button onclick="restartQuiz()">Restart Quiz</button>`;
         document.getElementById('results').style.display = 'block';
         document.getElementById('feedback').innerHTML = resultText;
         document.getElementById('questionText').textContent = '';
+        document.getElementById('questionNumber').textContent = '';
       }).catch(err => {
         console.error(err);
         document.getElementById('feedback').innerText = 'Error processing results.';
         document.getElementById('results').style.display = 'block';
       });
+    }
+
+    function restartQuiz() {
+      currentQuestion = 0;
+      answers = {};
+      document.getElementById('results').style.display = 'none';
+      fetch('/api/questions')
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to fetch questions: ${res.status}`);
+          return res.json();
+        })
+        .then(data => {
+          questions = data;
+          displayQuestion();
+        })
+        .catch(err => {
+          console.error('Error fetching questions:', err);
+          document.getElementById('questionText').textContent = 'Failed to load questions.';
+        });
     }
 
     document.getElementById('answerInput').addEventListener('keydown', function(event) {
@@ -589,11 +546,6 @@
         submitAnswer();
       }
     });
-
-    synth.onvoiceschanged = () => {
-      const voices = synth.getVoices();
-      console.log('Voices loaded:', voices.map(v => ({ name: v.name, lang: v.lang })));
-    };
   </script>
 </body>
 </html>
