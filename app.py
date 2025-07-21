@@ -1,28 +1,159 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 import json
 import os
+import time
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from difflib import SequenceMatcher
 import re
 import google.generativeai as genai
 from dotenv import load_dotenv
+from elevenlabs import ElevenLabs
 
 load_dotenv()
 
-# Configure Gemini API key
+# Configure Gemini and ElevenLabs API keys
 api_key = os.getenv("GOOGLE_API_KEY")
 if not api_key:
     raise ValueError("GOOGLE_API_KEY is not set in the environment variables!")
 
+elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
+if not elevenlabs_api_key:
+    raise ValueError("ELEVENLABS_API_KEY is not set in the environment variables!")
 
 genai.configure(api_key=api_key)
+try:
+    elevenlabs_client = ElevenLabs(api_key=elevenlabs_api_key)
+except Exception as e:
+    print(f"Error initializing ElevenLabs client: {str(e)}")
+    raise
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-# Load scraped website data
+# Create audio folder if not exists (for other static files)
+os.makedirs("static/audio", exist_ok=True)
+
+@app.route('/api/get-elevenlabs-key', methods=['GET'])
+def get_elevenlabs_key():
+    return jsonify({'api_key': os.getenv("ELEVENLABS_API_KEY")})
+
+@app.route('/generate-audio', methods=['POST'])
+def generate_audio():
+    try:
+        data = request.get_json()
+        if not data or 'text' not in data:
+            print("Error: Invalid or missing JSON payload")
+            return jsonify({'error': 'No text provided'}), 400
+
+        text = data.get('text', '')
+        voice_type = data.get('voice', 'female')  # 'female' or 'male'
+
+        if not text:
+            print("Error: Empty text provided for audio generation")
+            return jsonify({'error': 'No text provided'}), 400
+
+        voice_id = os.getenv("ELEVENLABS_VOICE_FEMALE") if voice_type == 'female' else os.getenv("ELEVENLABS_VOICE_MALE")
+        if not voice_id:
+            print(f"Error: No voice ID found for {voice_type}")
+            return jsonify({'error': f'No voice ID configured for {voice_type}'}), 400
+
+        model = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
+
+        print(f"Streaming audio with voice_id: {voice_id}, model: {model}")
+        audio_stream = elevenlabs_client.text_to_speech.convert(
+            voice_id=voice_id,
+            text=text,
+            model_id=model,
+            output_format="mp3_44100_128",
+            voice_settings={"stability": 0.5, "similarity_boost": 0.5, "speed": 0.8}
+        )
+        return Response(audio_stream, mimetype='audio/mpeg')
+    except Exception as e:
+        print(f"Error generating audio: {str(e)}")
+        return jsonify({'error': f'Failed to generate audio: {str(e)}'}), 500
+
+@app.route('/api/chat', methods=['POST'])
+def chatbot_reply():
+    try:
+        # Validate JSON input
+        data = request.get_json(silent=True)
+        if not data:
+            print("Error: Invalid or missing JSON payload")
+            return jsonify({"error": "Invalid JSON payload"}), 400
+
+        msg = data.get("message", "")
+        user_message = msg["text"] if isinstance(msg, dict) and "text" in msg else msg
+        if not user_message:
+            print("Error: Empty message provided")
+            return jsonify({"error": "No message provided"}), 400
+
+        print("User message:", user_message)
+
+        # Handle conversational phrases
+        user_message_lower = user_message.lower().strip()
+        if user_message_lower in conversational_phrases:
+            print(f"Matched conversational phrase: {user_message_lower}")
+            reply = conversational_phrases[user_message_lower]
+            return jsonify({"reply": reply})
+
+        for phrase in conversational_phrases:
+            if SequenceMatcher(None, user_message_lower, phrase).ratio() >= 0.8:
+                print(f"Fuzzy matched conversational phrase: {user_message_lower} -> {phrase}")
+                reply = conversational_phrases[phrase]
+                return jsonify({"reply": reply})
+
+        # Process UBIK-related or general queries
+        if is_related_to_ubik(user_message):
+            normalized_message = normalize_to_ubik(user_message)
+            context = find_relevant_chunk(normalized_message, text_chunks)
+            print(f"Selected context chunk: {context[:200]}")
+
+            prompt = f"""
+            You are a helpful chatbot assistant for UBIK Solutions. Respond based on the provided context:
+
+            Context:
+            {context}
+
+            Question: {normalized_message}
+
+            Respond:
+            - In a short, clear, and meaningful way.
+            - Stay professional but friendly.
+            - Use 1 or 2 relevant emojis in your response.
+            - If no relevant information is found, say: "I couldn't find specific details on that. Please ask another question about UBIK Solutions! 😊"
+            """
+        else:
+            prompt = f"""
+            You are a friendly, conversational chatbot assistant. Respond to the following user input in a natural, engaging way, as if continuing a casual conversation. Keep the tone professional but friendly, and use 1 or 2 relevant emojis:
+
+            User input: {user_message}
+
+            Respond:
+            - Keep the response short and relevant.
+            - Avoid restricting to UBIK Solutions unless relevant.
+            - Use 1 or 2 emojis to match the tone.
+            """
+
+        # Generate response with Gemini
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt)
+            print("Gemini API response:", response.text)
+            reply = response.text.strip()
+            if not reply or "sorry" in reply.lower() or "cannot" in reply.lower() or "not enough" in reply.lower():
+                reply = "Hmm, not sure about that one! What's next? 😄"
+            return jsonify({"reply": reply})
+        except Exception as e:
+            print(f"Gemini API error: {str(e)}")
+            return jsonify({"reply": "Hmm, not sure about that one! What's next? 😄"})
+
+    except Exception as e:
+        print(f"Unexpected error in /api/chat: {str(e)}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+# [Rest of app.py remains unchanged]
 def load_scraped_data(file_path):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -43,12 +174,11 @@ def load_scraped_data(file_path):
         print(f"Error loading scraped data: {e}")
         return ""
 
-# Text to chunks
 def chunk_text(text, chunk_size=1500):
     return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
 
 def normalize_to_ubik(message):
-    variations = ['ubiq', 'ubikx', 'ubikz', 'ubiqs', 'ubiksolution', 'ubiksolutionz', 'ubique', 'ubik.']
+    variations = ['ubiq', 'ubikx', 'ubikz', 'ubiqs', 'ubiksolution', 'ubiksolutionz', 'ubique']
     for v in variations:
         message = re.sub(rf"\b{v}\b", "UBIK Solutions", message, flags=re.IGNORECASE)
     return message
@@ -73,7 +203,6 @@ def find_relevant_chunk(question, chunks):
     best_index = similarities.argmax()
     return chunks[best_index]
 
-# Load and process scraped data
 print("⏳ Loading and parsing UBIK Solutions website data...")
 scraped_text = load_scraped_data("ubik_scraped_content.txt")
 if not scraped_text:
@@ -81,7 +210,6 @@ if not scraped_text:
 text_chunks = chunk_text(scraped_text)
 print(f"✅ Loaded {len(text_chunks)} text chunks from scraped data.")
 
-# Conversational responses for common phrases
 conversational_phrases = {
     'okay': 'Got it! 😊',
     'ok': 'Alright, cool! 😎',
@@ -105,7 +233,6 @@ conversational_phrases = {
     'what else': 'Plenty more to explore! What’s next on your list? 😄'
 }
 
-# Serve UI pages
 @app.route('/')
 def index():
     return send_from_directory('static', 'index.html')
@@ -122,7 +249,6 @@ def quiz():
 def static_files(path):
     return send_from_directory('static', path)
 
-# Quiz APIs
 @app.route('/api/questions', methods=['GET'])
 def get_questions():
     try:
@@ -177,73 +303,6 @@ def evaluate_answer():
         print("Error evaluating answer:", e)
         return jsonify({'feedback': 'Error processing answer.', 'score': 0.0})
 
-# Chatbot API
-@app.route('/api/chat', methods=['POST'])
-def chatbot_reply():
-    data = request.get_json()
-    msg = data.get("message", "")
-    user_message = msg["text"] if isinstance(msg, dict) and "text" in msg else msg
-    print("User message:", user_message)
-
-    # Check for exact conversational phrases
-    user_message_lower = user_message.lower().strip()
-    if user_message_lower in conversational_phrases:
-        print(f"Matched conversational phrase: {user_message_lower}")
-        return jsonify({"reply": conversational_phrases[user_message_lower]})
-
-    # Fuzzy matching for conversational phrases
-    for phrase in conversational_phrases:
-        if SequenceMatcher(None, user_message_lower, phrase).ratio() >= 0.8:
-            print(f"Fuzzy matched conversational phrase: {user_message_lower} -> {phrase}")
-            return jsonify({"reply": conversational_phrases[phrase]})
-
-    # Check if it's UBIK-related
-    if is_related_to_ubik(user_message):
-        normalized_message = normalize_to_ubik(user_message)
-        context = find_relevant_chunk(normalized_message, text_chunks)
-        print(f"Selected context chunk: {context[:200]}")
-
-        prompt = f"""
-        You are a helpful chatbot assistant for UBIK Solutions. Respond based on the provided context:
-
-        Context:
-        {context}
-
-        Question: {normalized_message}
-
-        Respond:
-        - In a short, clear, and meaningful way.
-        - Stay professional but friendly.
-        - Use 1 or 2 relevant emojis in your response.
-        - If no relevant information is found, say: "I couldn't find specific details on that. Please ask another question about UBIK Solutions! 😊"
-        """
-    else:
-        # Free-flowing conversational response
-        prompt = f"""
-        You are a friendly, conversational chatbot assistant. Respond to the following user input in a natural, engaging way, as if continuing a casual conversation. Keep the tone professional but friendly, and use 1 or 2 relevant emojis:
-
-        User input: {user_message}
-
-        Respond:
-        - Keep the response short and relevant.
-        - Avoid restricting to UBIK Solutions unless relevant.
-        - Use 1 or 2 emojis to match the tone.
-        """
-
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        print("Gemini API response:", response.text)
-        reply = response.text.strip()
-        if not reply or "sorry" in reply.lower() or "cannot" in reply.lower() or "not enough" in reply.lower():
-            reply = "Hmm, not sure about that one! What's next? 😄"
-        return jsonify({"reply": reply})
-    except Exception as e:
-        print("Chat Error:", e)
-        return jsonify({"reply": "Hmm, not sure about that one! What's next? 😄"})
-
-
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
