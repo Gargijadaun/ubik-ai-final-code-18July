@@ -32,7 +32,7 @@ except Exception as e:
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-# Create audio folder if not exists (for other static files)
+# Create audio folder if not exists
 os.makedirs("static/audio", exist_ok=True)
 
 @app.route('/api/get-elevenlabs-key', methods=['GET'])
@@ -153,25 +153,49 @@ def chatbot_reply():
         print(f"Unexpected error in /api/chat: {str(e)}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
-# [Rest of app.py remains unchanged]
 def load_scraped_data(file_path):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        if not content.strip():
-            raise ValueError("Scraped data file is empty")
-        sections = content.split('\n\n--- ')
+            data = json.load(f)
+        
+        if not data:
+            raise ValueError("Scraped JSON file is empty")
+        
+        # Extract text from products, services, and pages
         scraped_text = ""
-        for section in sections:
-            if section.strip():
-                lines = section.split('\n', 1)
-                if len(lines) > 1:
-                    scraped_text += lines[1] + "\n"
-                else:
-                    scraped_text += lines[0] + "\n"
+        
+        # Products
+        for product in data.get('products', []):
+            scraped_text += f"Product: {product.get('name', '')}\n"
+            scraped_text += f"Description: {product.get('description', '')}\n"
+            scraped_text += f"Price: {product.get('price', '')}\n"
+            scraped_text += f"Ingredients: {product.get('ingredients', '')}\n"
+            scraped_text += f"Category: {product.get('category', '')}\n\n"
+        
+        # Services
+        for service in data.get('services', []):
+            scraped_text += f"Service: {service.get('name', '')}\n"
+            scraped_text += f"Description: {service.get('description', '')}\n"
+            scraped_text += f"Features: {service.get('features', '')}\n\n"
+        
+        # Pages
+        for url, page in data.get('pages', {}).items():
+            scraped_text += f"Page: {url}\n"
+            scraped_text += f"Title: {page.get('title', '')}\n"
+            scraped_text += f"Meta Description: {page.get('meta_description', '')}\n"
+            scraped_text += f"Category: {page.get('category', '')}\n"
+            for section in page.get('sections', []):
+                scraped_text += f"Section: {section.get('header', '')}\n"
+                scraped_text += f"Content: {section.get('content', '')}\n"
+            if 'contact' in page and page['contact']:
+                scraped_text += f"Contact: {page['contact'].get('text', '')}\n"
+                scraped_text += f"Emails: {', '.join(page['contact'].get('emails', []))}\n"
+                scraped_text += f"Phones: {', '.join(page['contact'].get('phones', []))}\n"
+            scraped_text += "\n"
+        
         return scraped_text
     except Exception as e:
-        print(f"Error loading scraped data: {e}")
+        print(f"Error loading JSON data: {e}")
         return ""
 
 def chunk_text(text, chunk_size=1500):
@@ -203,12 +227,19 @@ def find_relevant_chunk(question, chunks):
     best_index = similarities.argmax()
     return chunks[best_index]
 
-print("⏳ Loading and parsing UBIK Solutions website data...")
-scraped_text = load_scraped_data("ubik_scraped_content.txt")
+print("⏳ Loading and parsing UBIK Solutions JSON data...")
+scraped_data = {}
+try:
+    with open("ubik_data.json", 'r', encoding='utf-8') as f:
+        scraped_data = json.load(f)
+except Exception as e:
+    print(f"Error loading JSON data: {e}")
+
+scraped_text = load_scraped_data("ubik_data.json")
 if not scraped_text:
-    print("⚠️ Failed to load scraped data, using fallback.")
+    print("⚠️ Failed to load JSON data, using fallback.")
 text_chunks = chunk_text(scraped_text)
-print(f"✅ Loaded {len(text_chunks)} text chunks from scraped data.")
+print(f"✅ Loaded {len(text_chunks)} text chunks from JSON data.")
 
 conversational_phrases = {
     'okay': 'Got it! 😊',
@@ -253,30 +284,32 @@ def static_files(path):
 def get_questions():
     try:
         prompt = f"""
-        Based on the following content about UBIK Solutions, generate 5 open-ended quiz questions that test understanding of their services, mission, or processes. Each question should start with 'How', 'What', or 'Why' and focus on key aspects of UBIK Solutions. Return the questions as a JSON array, e.g., ["question1", "question2", "question3", "question4", "question5"].
+        Based on the following JSON data about UBIK Solutions, generate 5 open-ended quiz questions that test understanding of their products, services, global presence, or company details. Each question should start with 'How', 'What', or 'Why' and focus on key aspects of UBIK Solutions. Return the questions as a JSON array, e.g., ["question1", "question2", "question3", "question4", "question5"].
         
-        Content:
-        {scraped_text}
+        JSON Data:
+        Products: {json.dumps([{'name': p['name'], 'category': p['category']} for p in scraped_data['products'][:5]], indent=2)}
+        Services: {json.dumps([{'name': s['name']} for s in scraped_data['services'][:5]], indent=2)}
+        Pages: {json.dumps({url: {'title': p['title'], 'category': p['category']} for url, p in list(scraped_data['pages'].items())[:5]}, indent=2)}
         """
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
         print("Quiz API response:", response.text)
         questions = json.loads(response.text.strip()) if response.text.strip().startswith('[') else [
-            "How does UBIK Solutions leverage AI for dermatology applications?",
-            "What are the key services offered by UBIK Solutions?",
-            "Why is UBIK Solutions' approach to data processing unique?",
-            "How does UBIK Solutions ensure the accuracy of their AI models?",
-            "What is the mission of UBIK Solutions in the healthcare industry?"
+            "What are the key benefits of UBIK Solutions' iDoc Academy for dermatology training?",
+            "How does UBIK Solutions' UVMed Tinted Sunscreen Gel support acne-prone skin?",
+            "Why is UBIK Solutions' global presence significant for its dermatology products?",
+            "What services does UBIK Solutions offer to support dermatologists' practices?",
+            "How does UBIK Solutions' BrandYou service help with private label products?"
         ]
         return jsonify(questions[:5])
     except Exception as e:
         print("Error generating questions:", e)
         return jsonify([
-            "How does UBIK Solutions leverage AI for dermatology applications?",
-            "What are the key services offered by UBIK Solutions?",
-            "Why is UBIK Solutions' approach to data processing unique?",
-            "How does UBIK Solutions ensure the accuracy of their AI models?",
-            "What is the mission of UBIK Solutions in the healthcare industry?"
+            "What are the key benefits of UBIK Solutions' iDoc Academy for dermatology training?",
+            "How does UBIK Solutions' UVMed Tinted Sunscreen Gel support acne-prone skin?",
+            "Why is UBIK Solutions' global presence significant for its dermatology products?",
+            "What services does UBIK Solutions offer to support dermatologists' practices?",
+            "How does UBIK Solutions' BrandYou service help with private label products?"
         ])
 
 @app.route('/api/evaluate', methods=['POST'])
@@ -288,7 +321,12 @@ def evaluate_answer():
     Evaluate the following answer to the question: '{question}'
     Answer: '{answer}'
     
-    Provide feedback on the correctness and completeness of the answer. If the answer is 'SKIPPED', note that no answer was provided. Return a JSON object with 'feedback' (string) and 'score' (float, 0 to 1).
+    Provide feedback on the correctness and completeness of the answer based on the following JSON data about UBIK Solutions. If the answer is 'SKIPPED', note that no answer was provided. Return a JSON object with 'feedback' (string) and 'score' (float, 0 to 1).
+    
+    JSON Data:
+    Products: {json.dumps([{'name': p['name'], 'description': p['description'], 'category': p['category']} for p in scraped_data['products'][:5]], indent=2)}
+    Services: {json.dumps([{'name': s['name'], 'description': s['description']} for s in scraped_data['services'][:5]], indent=2)}
+    Pages: {json.dumps({url: {'title': p['title'], 'category': p['category'], 'sections': p['sections']} for url, p in list(scraped_data['pages'].items())[:5]}, indent=2)}
     """
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
@@ -304,5 +342,20 @@ def evaluate_answer():
         return jsonify({'feedback': 'Error processing answer.', 'score': 0.0})
 
 if __name__ == "__main__":
+    # Load JSON data at startup
+    print("⏳ Loading and parsing UBIK Solutions JSON data...")
+    scraped_data = {}
+    try:
+        with open("ubik_data.json", 'r', encoding='utf-8') as f:
+            scraped_data = json.load(f)
+    except Exception as e:
+        print(f"Error loading JSON data: {e}")
+    
+    scraped_text = load_scraped_data("ubik_data.json")
+    if not scraped_text:
+        print("⚠️ Failed to load JSON data, using fallback.")
+    text_chunks = chunk_text(scraped_text)
+    print(f"✅ Loaded {len(text_chunks)} text chunks from JSON data.")
+    
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
