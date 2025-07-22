@@ -146,15 +146,30 @@
       background-color: #E91E63;
       color: white;
     }
-    .results, .report {
+    .results {
       margin-top: 1rem;
       background: #fce4ec;
       padding: 1rem;
       border-radius: 12px;
+      display: none;
       border-left: 4px solid #E91E63;
     }
-    .results[style*="display: none"], .report[style*="display: none"] {
+    .summary-report {
+      margin-top: 1rem;
+      background: #e1f5fe;
+      padding: 1rem;
+      border-radius: 12px;
       display: none;
+      border-left: 4px solid #E91E63;
+    }
+    .summary-report h3 {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+    }
+    .summary-report p {
+      font-size: 14px;
+      margin-bottom: 0.5rem;
     }
     #waveform {
       display: none;
@@ -171,22 +186,6 @@
       0% { transform: scale(1); opacity: 0.8; }
       50% { transform: scale(1.8); opacity: 0.4; }
       100% { transform: scale(1); opacity: 0.8; }
-    }
-    #report-button, #download-report-button {
-      display: none;
-      background-color: #E91E63;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 10px 16px;
-      font-weight: 500;
-      font-size: 14px;
-      cursor: pointer;
-      margin-top: 1rem;
-      text-align: center;
-    }
-    #report-button:hover, #download-report-button:hover {
-      background-color: #d81b60;
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
@@ -227,9 +226,10 @@
         <h3>Results</h3>
         <div id="feedback"></div>
       </div>
-      <div id="report" class="report"></div>
-      <button id="report-button" onclick="generateReport()">Generate Report</button>
-      <button id="download-report-button" onclick="downloadReport()">Download PDF Report</button>
+      <div id="summary-report" class="summary-report">
+        <h3>Quiz Summary Report</h3>
+        <div id="summary-content"></div>
+      </div>
     </div>
     <div class="nav-buttons">
       <button onclick="location.href='/'">AI Assist</button>
@@ -244,33 +244,51 @@
 
     function loadModelAnimations(gltf) {
       mixer = new THREE.AnimationMixer(gltf.scene);
+      console.log("Available animations:", gltf.animations.map(clip => clip.name));
       if (gltf.animations.length > 0) {
-        const clip = gltf.animations[0];
-        animations.Idle = mixer.clipAction(clip);
+        animations.Idle = mixer.clipAction(gltf.animations[0]);
+        animations.Idle.setLoop(THREE.LoopRepeat);
         animations.Idle.play();
+        console.log(`Playing first animation: ${gltf.animations[0].name}`);
+      } else {
+        console.warn("No animations found in GLB file.");
       }
       gltf.scene.traverse(child => {
         if (child.isBone && child.name.toLowerCase().includes("root")) {
           rootBone = child;
         }
       });
+      console.log("Loaded animations:", Object.keys(animations));
     }
 
-    function playRandomTalkingAnimation() {
-      if (!mixer) return;
+    function playTalkingAnimation() {
+      if (!mixer || !animations.Idle) {
+        console.warn("No animation available for talking, using blend shapes only");
+        return;
+      }
+      animations.Idle.play();
+      console.log("Playing animation for talking");
+    }
+
+    function stopTalkingAnimation() {
       if (animations.Idle) {
-        animations.Idle.reset().play();
+        animations.Idle.play();
+        console.log("Ensuring animation is playing");
+      } else {
+        console.log("No animation to play");
       }
     }
 
-    function stopTalkingAnimations() {
-      if (animations.Idle) animations.Idle.play();
-    }
-
     function startMouthAnimation() {
-      if (!morphDict || !morphInfluences) return;
+      if (!morphDict || !morphInfluences) {
+        console.warn("No morph targets available");
+        return;
+      }
       const index = morphDict['mouthOpen'];
-      if (index === undefined) return;
+      if (index === undefined) {
+        console.warn("mouthOpen blend shape not found");
+        return;
+      }
       clearInterval(window.mouthInterval);
       window.mouthInterval = setInterval(() => {
         const t = performance.now() / 100;
@@ -280,15 +298,24 @@
     }
 
     function stopMouthAnimation() {
-      const i = morphDict?.mouthOpen;
-      if (i !== undefined) morphInfluences[i] = 0;
+      if (morphDict && morphInfluences && morphDict['mouthOpen'] !== undefined) {
+        morphInfluences[morphDict['mouthOpen']] = 0;
+      }
       clearInterval(window.mouthInterval);
+      console.log("Stopped mouth animation");
     }
 
     function animateAvatar() {
       requestAnimationFrame(animateAvatar);
       const delta = clock.getDelta();
-      if (mixer) mixer.update(delta);
+      if (mixer) {
+        try {
+          mixer.update(delta);
+          console.log("Animation mixer updated");
+        } catch (error) {
+          console.error("Error updating animation mixer:", error);
+        }
+      }
       if (rootBone) rootBone.rotation.y = 0;
     }
     animateAvatar();
@@ -303,7 +330,11 @@
       camera = new THREE.PerspectiveCamera(30, bounds.width / bounds.height, 0.01, 5000);
       camera.position.set(0, 0, 3.5);
 
-      renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        antialias: true,
+        alpha: true
+      });
       renderer.setSize(bounds.width, bounds.height);
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.outputEncoding = THREE.sRGBEncoding;
@@ -315,18 +346,19 @@
       const controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
+      controls.target.set(0, 0, 0);
       controls.enableZoom = false;
       controls.enablePan = false;
       controls.enableRotate = false;
-      controls.target.set(0, 0, 0);
       controls.update();
 
       const loader = new THREE.GLTFLoader();
-      loader.load('/static/male_char_LightBaked_15thJuly.glb', function (gltf) {
+      loader.load('static/male_char_LightBaked_15thJuly.glb', function (gltf) {
         model = gltf.scene;
         model.position.set(0, -4.7, 0);
         model.rotation.set(0, 0.1, 0);
         model.scale.set(3, 3, 3);
+        console.log('Model Position after setting:', model.position);
         scene.add(model);
 
         loadModelAnimations(gltf);
@@ -341,26 +373,43 @@
         if (skinnedMesh) {
           morphDict = skinnedMesh.morphTargetDictionary;
           morphInfluences = skinnedMesh.morphTargetInfluences;
+          console.log("Available morph targets:", Object.keys(morphDict));
+
           if ('mouthSmile' in morphDict) {
             morphInfluences[morphDict['mouthSmile']] = 0.3;
+            console.log("Applied mouthSmile blend shape");
           }
+
           if ('eyesClosed' in morphDict) {
             function blinkEyes(i) {
               morphInfluences[i] = 1;
               setTimeout(() => morphInfluences[i] = 0, 100);
+              console.log("Eyes blinked");
             }
+
             const eyeIndex = morphDict['eyesClosed'];
             setInterval(() => {
               blinkEyes(eyeIndex);
             }, 5000 + Math.random() * 2000);
           }
+        } else {
+          console.warn("No skinned mesh with morph targets found");
         }
+
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        console.log('Initial Center Point:', center);
 
         function animate() {
           requestAnimationFrame(animate);
           controls.update();
           renderer.render(scene, camera);
+          if (model) {
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+          }
         }
+
         animate();
       }, undefined, function (error) {
         console.error('Error loading GLB model:', error);
@@ -379,6 +428,51 @@
     let questions = [];
     let answers = {};
     const totalQuestions = 5;
+    const synth = window.speechSynthesis;
+
+    function switchTab(tab) {
+      const assistBtn = document.getElementById('assistBtn');
+      const dermatBtn = document.getElementById('dermatBtn');
+      if (tab === 'assist') {
+        assistBtn.classList.add('active');
+        dermatBtn.classList.remove('active');
+        location.href = '/';
+      } else {
+        dermatBtn.classList.add('active');
+        assistBtn.classList.remove('active');
+        location.href = '/quiz';
+      }
+    }
+
+    function selectVoice(utter) {
+      const voices = synth.getVoices();
+      console.log('Available voices:', voices.map(v => ({ name: v.name, lang: v.lang })));
+      const maleVoice = voices.find(v => /david|mark|male|guy|daniel|richard|george|google us english male/i.test(v.name.toLowerCase()));
+      if (!maleVoice) {
+        console.warn('No male voice available, selecting default English voice');
+        utter.voice = voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang)) || voices[0];
+      } else {
+        utter.voice = maleVoice;
+      }
+      utter.rate = 0.9;
+      utter.pitch = 1.0;
+      console.log('Selected male voice:', maleVoice?.name || utter.voice?.name || 'None');
+    }
+
+    function speakQuestion(text) {
+      const noEmojiText = text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
+      const utter = new SpeechSynthesisUtterance(noEmojiText);
+      selectVoice(utter);
+      utter.onstart = () => {
+        playTalkingAnimation();
+        startMouthAnimation();
+      };
+      utter.onend = () => {
+        stopTalkingAnimation();
+        stopMouthAnimation();
+      };
+      synth.speak(utter);
+    }
 
     function displayQuestion() {
       if (currentQuestion < totalQuestions && questions[currentQuestion]) {
@@ -387,9 +481,7 @@
         speakQuestion(questions[currentQuestion]);
         document.getElementById('answerInput').value = '';
         document.getElementById('results').style.display = 'none';
-        document.getElementById('report').style.display = 'none';
-        document.getElementById('report-button').style.display = 'none';
-        document.getElementById('download-report-button').style.display = 'none';
+        document.getElementById('summary-report').style.display = 'none';
       } else {
         evaluateQuiz();
       }
@@ -397,54 +489,8 @@
 
     function repeatQuestion() {
       if (currentQuestion < totalQuestions && questions[currentQuestion]) {
-        console.log('Repeating question:', questions[currentQuestion]);
         speakQuestion(questions[currentQuestion]);
       }
-    }
-
-    function speakQuestion(text) {
-      console.log('Sending audio request with voice: male, text:', text);
-      fetch('/generate-audio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text, voice: 'male' })
-      })
-      .then(res => {
-        console.log('Audio response status:', res.status);
-        if (!res.ok) {
-          return res.json().then(errorData => {
-            if (res.status === 401) {
-              throw new Error('Invalid ElevenLabs API key. Please contact support at https://elevenlabs.io/.');
-            } else if (res.status === 429) {
-              throw new Error('ElevenLabs API quota exceeded. Please try again later or check your plan at https://elevenlabs.io/.');
-            } else if (errorData.error && errorData.error.includes('voice_not_found')) {
-              throw new Error('Male voice (Adam) unavailable, falling back to default. Check voice ID in app.py.');
-            }
-            throw new Error(`Failed to fetch audio: ${res.status} - ${errorData.error || 'Unknown error'}`);
-          });
-        }
-        return res.blob();
-      })
-      .then(blob => {
-        console.log('Audio blob received, playing...');
-        const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        audio.onplay = () => {
-          console.log('Audio playing with male voice');
-          playRandomTalkingAnimation();
-          startMouthAnimation();
-        };
-        audio.onended = () => {
-          console.log('Audio playback ended');
-          stopTalkingAnimations();
-          stopMouthAnimation();
-        };
-        audio.play();
-      })
-      .catch(err => {
-        console.error('Audio error:', err.message);
-        alert(`Failed to play question audio: ${err.message} 📋`);
-      });
     }
 
     function submitAnswer() {
@@ -482,138 +528,120 @@
     recognition.onerror = function(event) {
       console.error('Speech recognition error:', event.error);
       document.getElementById('waveform').style.display = 'none';
-      alert('Speech recognition error. Please try again or type your answer. 📋');
     };
 
     recognition.onend = function() {
       document.getElementById('waveform').style.display = 'none';
     };
 
-    function generateReport() {
-      fetch('/api/generate-report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers })
-      })
-      .then(res => {
-        if (!res.ok) {
-          return res.json().then(errorData => {
-            if (res.status === 429) {
-              throw new Error('Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.');
-            }
-            throw new Error(`Failed to fetch report: ${res.status} - ${errorData.error || 'Unknown error'}`);
-          });
-        }
-        return res.text();
-      })
-      .then(html => {
-        document.getElementById('report').innerHTML = html;
-        document.getElementById('report').style.display = 'block';
-        document.getElementById('download-report-button').style.display = 'block';
-      })
-      .catch(err => {
-        console.error('Error fetching report:', err);
-        alert(`Error loading report: ${err.message} 📋`);
-        document.getElementById('report').innerHTML = 'Error loading report.';
-        document.getElementById('report').style.display = 'block';
+    fetch('/api/questions')
+      .then(res => res.json())
+      .then(data => {
+        questions = data.map(q => {
+          if (!q.startsWith('How') && !q.startsWith('What') && !q.startsWith('Why')) {
+            return `How does UBIK Solutions ensure ${q.toLowerCase()}?`;
+          }
+          return q;
+        });
+        displayQuestion();
+      }).catch(err => {
+        console.error('Error fetching questions:', err);
+        document.getElementById('questionText').textContent = 'Error loading questions.';
       });
-    }
-
-    function downloadReport() {
-      fetch('/api/download-report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers })
-      })
-      .then(res => {
-        if (!res.ok) {
-          return res.json().then(errorData => {
-            if (res.status === 429) {
-              throw new Error('Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.');
-            }
-            throw new Error(`Failed to download report: ${res.status} - ${errorData.error || 'Unknown error'}`);
-          });
-        }
-        return res.blob();
-      })
-      .then(blob => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'quiz_summary_report.pdf';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-      })
-      .catch(err => {
-        console.error('Error downloading report:', err);
-        alert(`Failed to download PDF report: ${err.message} 📋`);
-      });
-    }
 
     function evaluateQuiz() {
       let totalScore = 0;
+      let correctAnswers = 0;
       const feedback = {};
+
+      // Initialize feedback for all questions to prevent undefined errors
+      for (let i = 0; i < totalQuestions; i++) {
+        feedback[i] = 'No feedback available; please try again.';
+      }
+
       Promise.all(Object.keys(answers).map(async (qIndex) => {
         const question = questions[qIndex];
         const answer = answers[qIndex];
-        const response = await fetch('/api/evaluate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question, answer })
-        });
-        if (!response.ok) {
-          return response.json().then(errorData => {
-            if (response.status === 429) {
-              throw new Error('Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.');
-            }
-            throw new Error(`Failed to evaluate answer: ${response.status} - ${errorData.error || 'Unknown error'}`);
+        try {
+          const response = await fetch('/api/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question, answer })
           });
+          const data = await response.json();
+          console.log(`Evaluation response for Q${parseInt(qIndex) + 1}:`, data);
+          if (data.feedback && typeof data.score === 'number') {
+            feedback[qIndex] = data.feedback;
+            totalScore += data.score || 0;
+            if (data.score >= 0.8) correctAnswers++;
+          } else {
+            feedback[qIndex] = 'Error evaluating answer; please try again.';
+            console.warn(`Invalid response for Q${parseInt(qIndex) + 1}:`, data);
+          }
+        } catch (err) {
+          console.error(`Error evaluating Q${parseInt(qIndex) + 1}:`, err);
+          feedback[qIndex] = 'Error evaluating answer; please try again.';
         }
-        const data = await response.json();
-        feedback[qIndex] = data.feedback;
-        totalScore += data.score || 0;
       })).then(() => {
         const avg = (totalScore / totalQuestions).toFixed(2);
-        let resultText = `<strong>Your average score: ${avg}/1.0</strong><br><br>Feedback:<br>`;
+        let resultText = `<strong>Your average score: ${avg}/1.0</strong><br>`;
+        resultText += `You answered ${correctAnswers} out of ${totalQuestions} questions correctly.<br><br>`;
+        resultText += `<strong>Feedback:</strong><br>`;
         for (let i in feedback) {
-          resultText += `Question ${parseInt(i) + 1}: ${feedback[i]}<br>`;
+          resultText += `Question ${parseInt(i) + 1}: ${feedback[i] || 'No feedback available.'}<br>`;
         }
         document.getElementById('results').style.display = 'block';
         document.getElementById('feedback').innerHTML = resultText;
+
+        // Generate summary report
+        let summaryText = `<strong>Summary of Your Performance</strong><br>`;
+        summaryText += `You completed the UBIK Solutions quiz with an average score of ${avg}/1.0, correctly answering ${correctAnswers} out of ${totalQuestions} questions.<br><br>`;
+        
+        // Assess understanding based on score
+        if (avg >= 0.8) {
+          summaryText += `Excellent work! You demonstrate a strong understanding of UBIK Solutions' services and products. Your answers show familiarity with key aspects like our mission, AI-driven dermatology solutions, and product details. Keep up the great work! 😊<br><br>`;
+        } else if (avg >= 0.5) {
+          summaryText += `Good effort! You have a solid foundation in understanding UBIK Solutions, but there are some areas to improve. Reviewing our services, such as AI dermatology applications or iDoc Academy, or product details, like Anti-Acne or Anti-Ageing ingredients, could strengthen your knowledge. 😄<br><br>`;
+        } else {
+          summaryText += `It looks like you could benefit from learning more about UBIK Solutions. Your answers suggest some gaps in knowledge about our mission, services, or products. Consider reviewing our core offerings, such as our Anti-Acne and Anti-Ageing products, to better understand our brand. We're here to help! 😊<br><br>`;
+        }
+
+        // Review of answers
+        summaryText += `<strong>Answer Reviews</strong><br>`;
+        for (let i in feedback) {
+          const question = questions[i] || 'Unknown question';
+          const answer = answers[i] || 'No answer provided';
+          summaryText += `<strong>Question ${parseInt(i) + 1}: ${question}</strong><br>`;
+          summaryText += `Your Answer: ${answer === 'SKIPPED' ? 'Skipped' : answer}<br>`;
+          summaryText += `Feedback: ${feedback[i] || 'No feedback available.'}<br>`;
+          // Improved reference logic
+          if (answer !== 'SKIPPED') {
+            if (question.toLowerCase().includes('anti-acne') || question.toLowerCase().includes('ingredients')) {
+              summaryText += `Reference: This question relates to UBIK Solutions' Anti-Acne products, such as Sebogel with Salicylic Acid and Niacinamide for acne control. Your answer ${feedback[i] && feedback[i].toLowerCase().includes('correct') ? 'aligned well' : 'could better align'} with our product offerings.<br>`;
+            } else if (question.toLowerCase().includes('anti-ageing') || question.toLowerCase().includes('aging')) {
+              summaryText += `Reference: This question relates to UBIK Solutions' Anti-Ageing products, such as Reti K Cream with Encapsulated Retinol for reducing wrinkles. Your answer ${feedback[i] && feedback[i].toLowerCase().includes('correct') ? 'aligned well' : 'could better align'} with our product offerings.<br>`;
+            } else {
+              summaryText += `Reference: This question ties to UBIK Solutions' mission or services, such as AI-driven dermatology solutions or iDoc Academy. Your answer ${feedback[i] && feedback[i].toLowerCase().includes('correct') ? 'demonstrated good knowledge' : 'could include more details'} about our core operations.<br>`;
+            }
+          } else {
+            summaryText += `Reference: Skipping this question missed an opportunity to showcase knowledge about UBIK Solutions' offerings. Reviewing our JSON data could help! 😊<br>`;
+          }
+          summaryText += `<br>`;
+        }
+
+        summaryText += `<strong>Next Steps</strong><br>`;
+        summaryText += `To deepen your understanding of UBIK Solutions, consider exploring our product categories (e.g., Anti-Acne, Anti-Ageing) or our mission to leverage AI in dermatology. Feel free to retake the quiz or ask for more details about specific products or services! 😄`;
+
+        document.getElementById('summary-report').style.display = 'block';
+        document.getElementById('summary-content').innerHTML = summaryText;
         document.getElementById('questionText').textContent = '';
-        document.getElementById('report-button').style.display = 'block';
-        generateReport();
       }).catch(err => {
-        console.error('Evaluation error:', err);
-        alert(`Error processing results: ${err.message} 📋`);
-        document.getElementById('feedback').innerText = 'Error processing results.';
+        console.error('Error in evaluateQuiz:', err);
+        document.getElementById('feedback').innerText = 'Error processing results. Please try again.';
         document.getElementById('results').style.display = 'block';
+        document.getElementById('summary-report').style.display = 'none';
       });
     }
-
-    fetch('/api/questions')
-      .then(res => {
-        if (!res.ok) {
-          return res.json().then(errorData => {
-            if (res.status === 429) {
-              throw new Error('Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.');
-            }
-            throw new Error(`Failed to fetch questions: ${res.status} - ${errorData.error || 'Unknown error'}`);
-          });
-        }
-        return res.json();
-      })
-      .then(data => {
-        questions = data;
-        displayQuestion();
-      })
-      .catch(err => {
-        console.error('Error fetching questions:', err);
-        alert(`Error loading questions: ${err.message} 📋`);
-        document.getElementById('questionText').textContent = 'Error loading questions.';
-      });
 
     document.getElementById('answerInput').addEventListener('keydown', function(event) {
       if (event.key === 'Enter' && !event.shiftKey) {
@@ -621,6 +649,11 @@
         submitAnswer();
       }
     });
+
+    synth.onvoiceschanged = () => {
+      const voices = synth.getVoices();
+      console.log('Voices loaded:', voices.map(v => ({ name: v.name, lang: v.lang })));
+    };
   </script>
 </body>
 </html>

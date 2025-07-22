@@ -42,7 +42,7 @@
       padding: 2rem;
       display: flex;
       flex-direction: column;
-      height: calc(100vh - 60px);
+      height: 90vh;
     }
     #avatar-container {
       width: 100%;
@@ -176,9 +176,18 @@
       animation: pulse 1s infinite;
     }
     @keyframes pulse {
-      0% { transform: scale(1); opacity: 0.8; }
-      50% { transform: scale(1.8); opacity: 0.4; }
-      100% { transform: scale(1); opacity: 0.8; }
+      0% {
+        transform: scale(1);
+        opacity: 0.8;
+      }
+      50% {
+        transform: scale(1.8);
+        opacity: 0.4;
+      }
+      100% {
+        transform: scale(1);
+        opacity: 0.8;
+      }
     }
     .nav-buttons {
       display: flex;
@@ -229,21 +238,39 @@
       <button id="dermatBtn" onclick="switchTab('dermat')">AI Dermat</button>
     </div>
   </div>
-
+  <script>
+    function switchTab(tab) {
+      const assistBtn = document.getElementById('assistBtn');
+      const dermatBtn = document.getElementById('dermatBtn');
+      if (tab === 'assist') {
+        assistBtn.classList.add('active');
+        dermatBtn.classList.remove('active');
+        location.href = '/';
+      } else {
+        dermatBtn.classList.add('active');
+        assistBtn.classList.remove('active');
+        location.href = '/quiz-instruction';
+      }
+    }
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-
   <script>
     let mixer, clock = new THREE.Clock();
     let animations = {};
     let rootBone = null;
+    let isSpeaking = false;
+    let isListening = false;
+    let morphInfluences = null;
+    let morphDict = null;
 
     function loadModelAnimations(gltf) {
       mixer = new THREE.AnimationMixer(gltf.scene);
       gltf.animations.forEach(clip => {
         if (["idle"].includes(clip.name)) {
           animations[clip.name] = mixer.clipAction(clip);
+          animations[clip.name].setLoop(THREE.LoopRepeat);
         }
       });
       gltf.scene.traverse(child => {
@@ -251,21 +278,55 @@
           rootBone = child;
         }
       });
-      animations.idle.play();
+      if (animations.idle) {
+        animations.idle.play();
+        console.log("Playing idle animation on load");
+      } else {
+        console.warn("Idle animation not found");
+      }
     }
 
     function playRandomTalkingAnimation() {
+      if (!mixer || !morphDict || !morphInfluences) return;
+      playIdleAnimation();
+      clearInterval(window.mouthInterval);
+      let t = 0;
+      window.mouthInterval = setInterval(() => {
+        t += 0.5;
+        const mouthOpenValue = Math.abs(Math.sin(t)) * 0.8;
+        const mouthSmileValue = Math.random() * 0.3;
+        if (morphDict['mouthOpen'] !== undefined) {
+          morphInfluences[morphDict['mouthOpen']] = mouthOpenValue;
+        }
+        if (morphDict['mouthSmile'] !== undefined) {
+          morphInfluences[morphDict['mouthSmile']] = mouthSmileValue;
+        }
+        console.log(`Speaking animation: mouthOpen=${mouthOpenValue}, mouthSmile=${mouthSmileValue}`);
+      }, 80);
+    }
+
+    function playIdleAnimation() {
       if (!mixer) return;
-      const talkingClips = [animations.idle];
-      const randomClip = talkingClips[Math.floor(Math.random() * talkingClips.length)];
-      randomClip.reset().play();
+      Object.values(animations).forEach(anim => anim.stop());
+      if (animations.idle) {
+        animations.idle.play();
+        console.log("Playing idle animation");
+      } else {
+        console.warn("Idle animation not found");
+      }
+      if (morphDict && morphInfluences) {
+        if (morphDict['mouthOpen'] !== undefined) {
+          morphInfluences[morphDict['mouthOpen']] = 0;
+        }
+        if (morphDict['mouthSmile'] !== undefined) {
+          morphInfluences[morphDict['mouthSmile']] = 0;
+        }
+      }
+      clearInterval(window.mouthInterval);
     }
 
     function stopTalkingAnimations() {
-      ["idle"].forEach(name => {
-        if (animations[name]) animations[name].stop();
-      });
-      if (animations.idle) animations.idle.play();
+      playIdleAnimation();
     }
 
     function animateAvatar() {
@@ -279,12 +340,17 @@
     animateAvatar();
 
     let model, renderer, camera, scene;
+
     function initAvatar() {
       const canvas = document.getElementById('avatar-canvas');
       const container = document.getElementById('avatar-container');
       const bounds = container.getBoundingClientRect();
 
-      renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        antialias: true,
+        alpha: true
+      });
       renderer.setSize(bounds.width, bounds.height);
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.outputEncoding = THREE.sRGBEncoding;
@@ -308,17 +374,27 @@
       controls.update();
 
       const loader = new THREE.GLTFLoader();
-      loader.load('/static/AsianCharacter_14thJuly_TextureBaked_AnimUpdate_8_1_16thjuly.glb', function (gltf) {
+      loader.load('static/AsianCharacter_14thJuly_TextureBaked_AnimUpdate_8_1_16thjuly.glb', function (gltf) {
         model = gltf.scene;
         model.position.set(0, 2, 0);
         model.rotation.set(0, 0, 0);
         model.scale.set(3, 3, 3);
         scene.add(model);
 
+        const radius = Math.sqrt(camera.position.x ** 2 + (camera.position.y - controls.target.y) ** 2);
+        const initialAngle = Math.atan2(camera.position.y - controls.target.y, camera.position.x);
+        const rotationAngle = -Math.PI / 4;
+        camera.position.x = controls.target.x + radius * Math.cos(initialAngle + rotationAngle);
+        camera.position.y = controls.target.y + radius * Math.sin(initialAngle + rotationAngle);
+        camera.position.z = 30;
+        controls.update();
+
         const textureLoader = new THREE.TextureLoader();
         const emissiveTexture = textureLoader.load('/static/teeth.png');
+
         model.traverse((child) => {
           if (child.name === 'Asian_female_hair001') {
+            console.log("✅ Hair material modified on:", child.name);
             const oldMat = child.material;
             const newHairMaterial = oldMat.clone();
             newHairMaterial.side = THREE.DoubleSide;
@@ -331,6 +407,7 @@
             newHairMaterial.name = 'Asian_female_hair_modified';
             child.material = newHairMaterial;
             child.material.needsUpdate = true;
+            console.log("✅ Applied hair material:", newHairMaterial);
           }
         });
 
@@ -344,33 +421,44 @@
         });
 
         if (skinnedMesh) {
-          const morphDict = skinnedMesh.morphTargetDictionary;
-          const morphInfluences = skinnedMesh.morphTargetInfluences;
+          morphDict = skinnedMesh.morphTargetDictionary;
+          morphInfluences = skinnedMesh.morphTargetInfluences;
           window.morphDict = morphDict;
           window.morphInfluences = morphInfluences;
 
-          if ('mouthSmile' in morphDict) {
+          console.log("Morph targets available:", Object.keys(morphDict));
+
+          if (morphDict['eyesClosed'] !== undefined) {
+            const eyeIndex = morphDict['eyesClosed'];
+            function blinkEyes() {
+              morphInfluences[eyeIndex] = 1;
+              setTimeout(() => {
+                morphInfluences[eyeIndex] = 0;
+              }, 100);
+              setTimeout(blinkEyes, 3000 + Math.random() * 2000);
+            }
+            blinkEyes();
+          } else {
+            console.warn("eyesClosed morph target not found");
+          }
+
+          if (morphDict['mouthSmile'] !== undefined) {
             morphInfluences[morphDict['mouthSmile']] = 0.3;
           }
-
-          if ('eyesClosed' in morphDict) {
-            function blinkEyes(i) {
-              morphInfluences[i] = 1;
-              setTimeout(() => morphInfluences[i] = 0, 100);
-            }
-
-            const eyeIndex = morphDict['eyesClosed'];
-            setInterval(() => {
-              blinkEyes(eyeIndex);
-            }, 5000 + Math.random() * 2000);
-          }
+        } else {
+          console.warn("No skinned mesh with morph targets found");
         }
 
         function animate() {
           requestAnimationFrame(animate);
           controls.update();
           renderer.render(scene, camera);
+          if (model) {
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+          }
         }
+
         animate();
       }, undefined, function (error) {
         console.error('Error loading GLB model:', error);
@@ -387,58 +475,56 @@
     initAvatar();
 
     function startMouthAnimation() {
-      if (!window.morphDict || !window.morphInfluences) return;
-      const index = window.morphDict['mouthOpen'];
-      if (index === undefined) return;
-
-      let t = 0;
-      clearInterval(window.mouthInterval);
-      window.mouthInterval = setInterval(() => {
-        t += 0.5;
-        const amplitude = 1.0;
-        const value = Math.abs(Math.sin(t)) * amplitude;
-        window.morphInfluences[index] = value;
-      }, 80);
+      playRandomTalkingAnimation();
     }
 
     function stopMouthAnimation() {
-      const i = window.morphDict?.mouthOpen;
-      if (i !== undefined) window.morphInfluences[i] = 0;
-      clearInterval(window.mouthInterval);
+      stopTalkingAnimations();
     }
 
     const messagesDiv = document.getElementById('messages');
     const synth = window.speechSynthesis;
-    let preferredVoiceName = 'Google US English';
+
+    let preferredVoiceName = 'Microsoft Zira Desktop';
 
     function getPreferredVoice() {
       const voices = synth.getVoices();
-      const selectedVoice = voices.find(v => v.name === preferredVoiceName);
-      return selectedVoice || voices.find(v => /female|woman|zira|susan|google us english/i.test(v.name)) || voices[0];
-    }
-
-    async function generateElevenLabsAudio(text, voiceType = 'female') {
-      try {
-        console.log(`Generating audio for text: ${text.substring(0, 50)}..., voice: ${voiceType}`);
-        const response = await fetch('/generate-audio', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice: voiceType })
-        });
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(`ElevenLabs API request failed: ${response.status} - ${errorData.error || 'Unknown error'}`);
-        }
-        const blob = await response.blob();
-        return URL.createObjectURL(blob);
-      } catch (error) {
-        console.error('ElevenLabs audio generation failed:', error);
-        appendMessage('Audio unavailable, displaying text response.', 'bot');
-        return null;
+      console.log('Available voices:', voices.map(v => ({ name: v.name, lang: v.lang })));
+      const femaleVoice = voices.find(v => v.name === preferredVoiceName) ||
+                         voices.find(v => /zira|female|woman|google us english|eva|emma|susan|aria|jenny|allison|ava/i.test(v.name)) ||
+                         voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang) && !/david|mark|male|guy|daniel|richard|george/i.test(v.name));
+      if (!femaleVoice) {
+        console.warn('No female voice available, selecting default voice');
+        return voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang)) || voices[0];
       }
+      console.log('Selected female voice:', femaleVoice.name);
+      return femaleVoice;
     }
 
-    function appendMessage(text, sender, audioUrl = null) {
+    function speakText(text) {
+      const noEmojiText = text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
+      const utter = new SpeechSynthesisUtterance(noEmojiText);
+      const selectedVoice = getPreferredVoice();
+      if (!selectedVoice) {
+        console.warn('No voice available for TTS');
+        return;
+      }
+      utter.voice = selectedVoice;
+      utter.rate = 0.9;
+      utter.pitch = 1.0;
+      utter.onstart = () => {
+        isSpeaking = true;
+        startMouthAnimation();
+      };
+      utter.onend = () => {
+        isSpeaking = false;
+        if (!isListening) playIdleAnimation();
+        stopMouthAnimation();
+      };
+      synth.speak(utter);
+    }
+
+    function appendMessage(text, sender) {
       const msg = document.createElement('div');
       msg.className = `message ${sender}`;
       msg.textContent = text;
@@ -446,33 +532,7 @@
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
       if (sender === 'bot') {
-        playRandomTalkingAnimation();
-        startMouthAnimation();
-        if (audioUrl) {
-          const audio = new Audio(audioUrl);
-          audio.onended = () => {
-            stopTalkingAnimations();
-            stopMouthAnimation();
-          };
-          audio.play().catch(err => {
-            console.error("Audio playback error:", err);
-            speakWithFallback(text);
-          });
-        } else {
-          speakWithFallback(text);
-        }
-      }
-
-      function speakWithFallback(text) {
-        const noEmojiText = text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
-        const utter = new SpeechSynthesisUtterance(noEmojiText);
-        const selectedVoice = getPreferredVoice();
-        utter.voice = selectedVoice;
-        utter.onend = () => {
-          stopTalkingAnimations();
-          stopMouthAnimation();
-        };
-        synth.speak(utter);
+        speakText(text);
       }
     }
 
@@ -481,26 +541,27 @@
       const text = input.value.trim();
       if (!text) return;
 
+      console.log('User input:', text);
       appendMessage(text, 'user');
       input.value = '...';
 
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json'
+          },
           body: JSON.stringify({ message: text })
         });
-        if (!res.ok) {
-          throw new Error(`Chat API request failed: ${res.status} - ${await res.text()}`);
-        }
+
         const data = await res.json();
-        const reply = data.reply || data.error || "Sorry, something went wrong.";
-        const audioUrl = await generateElevenLabsAudio(reply);
-        appendMessage(reply, 'bot', audioUrl);
+        console.log('Server response:', data);
+        const reply = data.reply || "Sorry, something went wrong.";
+        appendMessage(reply, 'bot');
         input.value = '';
       } catch (err) {
         console.error('Chat API error:', err);
-        appendMessage("Sorry, something went wrong. Please try again! 😔", 'bot');
+        appendMessage("Sorry, something went wrong.", 'bot');
         input.value = '';
       }
     }
@@ -520,6 +581,8 @@
 
     function startListening() {
       recognition.start();
+      isListening = true;
+      playIdleAnimation();
       document.getElementById('waveform').style.display = 'block';
     }
 
@@ -532,43 +595,37 @@
         'ubiq': 'ubik',
         'Rubik': 'ubik',
       };
+
       for (let wrong in replacements) {
         const pattern = new RegExp(`\\b${wrong}\\b`, 'gi');
         transcript = transcript.replace(pattern, replacements[wrong]);
       }
+
       document.getElementById('userInput').value = transcript;
       sendMessage();
+      isListening = false;
+      if (!isSpeaking) playIdleAnimation();
       document.getElementById('waveform').style.display = 'none';
     };
 
     recognition.onerror = function (event) {
       console.error('Speech recognition error:', event.error);
       appendMessage("Couldn't hear properly. Try again.", 'bot');
+      isListening = false;
+      if (!isSpeaking) playIdleAnimation();
       document.getElementById('waveform').style.display = 'none';
     };
 
     recognition.onend = function () {
+      isListening = false;
+      if (!isSpeaking) playIdleAnimation();
       document.getElementById('waveform').style.display = 'none';
     };
 
     synth.onvoiceschanged = () => {
       const voice = getPreferredVoice();
-      console.log('Selected voice:', voice?.name);
+      console.log('Selected voice on voiceschanged:', voice?.name || 'None');
     };
-
-    function switchTab(tab) {
-      const assistBtn = document.getElementById('assistBtn');
-      const dermatBtn = document.getElementById('dermatBtn');
-      if (tab === 'assist') {
-        assistBtn.classList.add('active');
-        dermatBtn.classList.remove('active');
-        location.href = '/';
-      } else {
-        dermatBtn.classList.add('active');
-        assistBtn.classList.remove('active');
-        location.href = '/quiz-instruction';
-      }
-    }
   </script>
 </body>
 </html>
