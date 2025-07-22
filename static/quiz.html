@@ -146,27 +146,15 @@
       background-color: #E91E63;
       color: white;
     }
-    .results {
+    .results, .report {
       margin-top: 1rem;
       background: #fce4ec;
       padding: 1rem;
       border-radius: 12px;
-      display: none;
       border-left: 4px solid #E91E63;
     }
-    .results button {
-      background-color: #E91E63;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 10px 16px;
-      font-weight: 500;
-      font-size: 14px;
-      cursor: pointer;
-      margin-top: 10px;
-    }
-    .results button:hover {
-      background-color: #d81b60;
+    .results[style*="display: none"], .report[style*="display: none"] {
+      display: none;
     }
     #waveform {
       display: none;
@@ -184,7 +172,26 @@
       50% { transform: scale(1.8); opacity: 0.4; }
       100% { transform: scale(1); opacity: 0.8; }
     }
+    #report-button, #download-report-button {
+      display: none;
+      background-color: #E91E63;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-weight: 500;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 1rem;
+      text-align: center;
+    }
+    #report-button:hover, #download-report-button:hover {
+      background-color: #d81b60;
+    }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
   <header class="header">
@@ -220,15 +227,15 @@
         <h3>Results</h3>
         <div id="feedback"></div>
       </div>
+      <div id="report" class="report"></div>
+      <button id="report-button" onclick="generateReport()">Generate Report</button>
+      <button id="download-report-button" onclick="downloadReport()">Download PDF Report</button>
     </div>
     <div class="nav-buttons">
       <button onclick="location.href='/'">AI Assist</button>
       <button class="active" onclick="location.href='/quiz'">AI Dermat</button>
     </div>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script>
     let mixer, clock = new THREE.Clock();
     let animations = {};
@@ -373,20 +380,6 @@
     let answers = {};
     const totalQuestions = 5;
 
-    function switchTab(tab) {
-      const assistBtn = document.getElementById('assistBtn');
-      const dermatBtn = document.getElementById('dermatBtn');
-      if (tab === 'assist') {
-        assistBtn.classList.add('active');
-        dermatBtn.classList.remove('active');
-        location.href = '/';
-      } else {
-        dermatBtn.classList.add('active');
-        assistBtn.classList.remove('active');
-        location.href = '/quiz';
-      }
-    }
-
     function displayQuestion() {
       if (currentQuestion < totalQuestions && questions[currentQuestion]) {
         document.getElementById('questionNumber').textContent = currentQuestion + 1;
@@ -394,6 +387,9 @@
         speakQuestion(questions[currentQuestion]);
         document.getElementById('answerInput').value = '';
         document.getElementById('results').style.display = 'none';
+        document.getElementById('report').style.display = 'none';
+        document.getElementById('report-button').style.display = 'none';
+        document.getElementById('download-report-button').style.display = 'none';
       } else {
         evaluateQuiz();
       }
@@ -401,43 +397,63 @@
 
     function repeatQuestion() {
       if (currentQuestion < totalQuestions && questions[currentQuestion]) {
+        console.log('Repeating question:', questions[currentQuestion]);
         speakQuestion(questions[currentQuestion]);
       }
     }
 
     function speakQuestion(text) {
+      console.log('Sending audio request with voice: male, text:', text);
       fetch('/generate-audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: 'male' })
+        body: JSON.stringify({ text: text, voice: 'male' })
       })
       .then(res => {
-        if (!res.ok) throw new Error("Failed to fetch audio");
+        console.log('Audio response status:', res.status);
+        if (!res.ok) {
+          return res.json().then(errorData => {
+            if (res.status === 401) {
+              throw new Error('Invalid ElevenLabs API key. Please contact support at https://elevenlabs.io/.');
+            } else if (res.status === 429) {
+              throw new Error('ElevenLabs API quota exceeded. Please try again later or check your plan at https://elevenlabs.io/.');
+            } else if (errorData.error && errorData.error.includes('voice_not_found')) {
+              throw new Error('Male voice (Adam) unavailable, falling back to default. Check voice ID in app.py.');
+            }
+            throw new Error(`Failed to fetch audio: ${res.status} - ${errorData.error || 'Unknown error'}`);
+          });
+        }
         return res.blob();
       })
       .then(blob => {
+        console.log('Audio blob received, playing...');
         const audioUrl = URL.createObjectURL(blob);
         const audio = new Audio(audioUrl);
         audio.onplay = () => {
+          console.log('Audio playing with male voice');
           playRandomTalkingAnimation();
           startMouthAnimation();
         };
         audio.onended = () => {
+          console.log('Audio playback ended');
           stopTalkingAnimations();
           stopMouthAnimation();
         };
         audio.play();
       })
       .catch(err => {
-        console.error("Error with audio:", err);
+        console.error('Audio error:', err.message);
+        alert(`Failed to play question audio: ${err.message} 📋`);
       });
     }
 
     function submitAnswer() {
-      const answer = document.getElementById('answerInput').value.trim() || 'SKIPPED';
-      answers[currentQuestion] = answer;
-      currentQuestion++;
-      displayQuestion();
+      const answer = document.getElementById('answerInput').value.trim();
+      if (answer) {
+        answers[currentQuestion] = answer;
+        currentQuestion++;
+        displayQuestion();
+      }
     }
 
     function skipQuestion() {
@@ -466,25 +482,75 @@
     recognition.onerror = function(event) {
       console.error('Speech recognition error:', event.error);
       document.getElementById('waveform').style.display = 'none';
+      alert('Speech recognition error. Please try again or type your answer. 📋');
     };
 
     recognition.onend = function() {
       document.getElementById('waveform').style.display = 'none';
     };
 
-    fetch('/api/questions')
-      .then(res => {
-        if (!res.ok) throw new Error(`Failed to fetch questions: ${res.status}`);
-        return res.json();
+    function generateReport() {
+      fetch('/api/generate-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers })
       })
-      .then(data => {
-        questions = data;
-        displayQuestion();
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errorData => {
+            if (res.status === 429) {
+              throw new Error('Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.');
+            }
+            throw new Error(`Failed to fetch report: ${res.status} - ${errorData.error || 'Unknown error'}`);
+          });
+        }
+        return res.text();
+      })
+      .then(html => {
+        document.getElementById('report').innerHTML = html;
+        document.getElementById('report').style.display = 'block';
+        document.getElementById('download-report-button').style.display = 'block';
       })
       .catch(err => {
-        console.error('Error fetching questions:', err);
-        document.getElementById('questionText').textContent = 'Failed to load questions.';
+        console.error('Error fetching report:', err);
+        alert(`Error loading report: ${err.message} 📋`);
+        document.getElementById('report').innerHTML = 'Error loading report.';
+        document.getElementById('report').style.display = 'block';
       });
+    }
+
+    function downloadReport() {
+      fetch('/api/download-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers })
+      })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errorData => {
+            if (res.status === 429) {
+              throw new Error('Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.');
+            }
+            throw new Error(`Failed to download report: ${res.status} - ${errorData.error || 'Unknown error'}`);
+          });
+        }
+        return res.blob();
+      })
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'quiz_summary_report.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      })
+      .catch(err => {
+        console.error('Error downloading report:', err);
+        alert(`Failed to download PDF report: ${err.message} 📋`);
+      });
+    }
 
     function evaluateQuiz() {
       let totalScore = 0;
@@ -498,7 +564,12 @@
           body: JSON.stringify({ question, answer })
         });
         if (!response.ok) {
-          throw new Error(`Evaluation failed for question ${qIndex}`);
+          return response.json().then(errorData => {
+            if (response.status === 429) {
+              throw new Error('Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.');
+            }
+            throw new Error(`Failed to evaluate answer: ${response.status} - ${errorData.error || 'Unknown error'}`);
+          });
         }
         const data = await response.json();
         feedback[qIndex] = data.feedback;
@@ -509,36 +580,40 @@
         for (let i in feedback) {
           resultText += `Question ${parseInt(i) + 1}: ${feedback[i]}<br>`;
         }
-        resultText += `<br><button onclick="restartQuiz()">Restart Quiz</button>`;
         document.getElementById('results').style.display = 'block';
         document.getElementById('feedback').innerHTML = resultText;
         document.getElementById('questionText').textContent = '';
-        document.getElementById('questionNumber').textContent = '';
+        document.getElementById('report-button').style.display = 'block';
+        generateReport();
       }).catch(err => {
-        console.error(err);
+        console.error('Evaluation error:', err);
+        alert(`Error processing results: ${err.message} 📋`);
         document.getElementById('feedback').innerText = 'Error processing results.';
         document.getElementById('results').style.display = 'block';
       });
     }
 
-    function restartQuiz() {
-      currentQuestion = 0;
-      answers = {};
-      document.getElementById('results').style.display = 'none';
-      fetch('/api/questions')
-        .then(res => {
-          if (!res.ok) throw new Error(`Failed to fetch questions: ${res.status}`);
-          return res.json();
-        })
-        .then(data => {
-          questions = data;
-          displayQuestion();
-        })
-        .catch(err => {
-          console.error('Error fetching questions:', err);
-          document.getElementById('questionText').textContent = 'Failed to load questions.';
-        });
-    }
+    fetch('/api/questions')
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errorData => {
+            if (res.status === 429) {
+              throw new Error('Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.');
+            }
+            throw new Error(`Failed to fetch questions: ${res.status} - ${errorData.error || 'Unknown error'}`);
+          });
+        }
+        return res.json();
+      })
+      .then(data => {
+        questions = data;
+        displayQuestion();
+      })
+      .catch(err => {
+        console.error('Error fetching questions:', err);
+        alert(`Error loading questions: ${err.message} 📋`);
+        document.getElementById('questionText').textContent = 'Error loading questions.';
+      });
 
     document.getElementById('answerInput').addEventListener('keydown', function(event) {
       if (event.key === 'Enter' && !event.shiftKey) {

@@ -308,7 +308,7 @@
       controls.update();
 
       const loader = new THREE.GLTFLoader();
-      loader.load('/static/AsianCharacter_14thJuly_TextureBaked_AnimUpdate_8_1_16thJuly.glb', function (gltf) {
+      loader.load('/static/AsianCharacter_14thJuly_TextureBaked_AnimUpdate_8_1_16thjuly.glb', function (gltf) {
         model = gltf.scene;
         model.position.set(0, 2, 0);
         model.rotation.set(0, 0, 0);
@@ -417,21 +417,23 @@
       return selectedVoice || voices.find(v => /female|woman|zira|susan|google us english/i.test(v.name)) || voices[0];
     }
 
-    async function generateElevenLabsAudio(text) {
+    async function generateElevenLabsAudio(text, voiceType = 'female') {
       try {
+        console.log(`Generating audio for text: ${text.substring(0, 50)}..., voice: ${voiceType}`);
         const response = await fetch('/generate-audio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice: 'female' })
+          body: JSON.stringify({ text, voice: voiceType })
         });
         if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Audio generation failed: ${response.status} - ${errorText}`);
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`ElevenLabs API request failed: ${response.status} - ${errorData.error || 'Unknown error'}`);
         }
         const blob = await response.blob();
         return URL.createObjectURL(blob);
       } catch (error) {
-        console.error('Audio generation failed:', error);
+        console.error('ElevenLabs audio generation failed:', error);
+        appendMessage('Audio unavailable, displaying text response.', 'bot');
         return null;
       }
     }
@@ -493,9 +495,6 @@
         }
         const data = await res.json();
         const reply = data.reply || data.error || "Sorry, something went wrong.";
-        if (!reply || typeof reply !== 'string') {
-          throw new Error('Invalid response from server');
-        }
         const audioUrl = await generateElevenLabsAudio(reply);
         appendMessage(reply, 'bot', audioUrl);
         input.value = '';
@@ -531,13 +530,7 @@
         'you big': 'ubik',
         'q big': 'ubik',
         'ubiq': 'ubik',
-        'rubik': 'ubik',
-        'ubikx': 'ubik',
-        'ubikz': 'ubik',
-        'ubiqs': 'ubik',
-        'ubiksolution': 'ubik solutions',
-        'ubiksolutionz': 'ubik solutions',
-        'ubique': 'ubik'
+        'Rubik': 'ubik',
       };
       for (let wrong in replacements) {
         const pattern = new RegExp(`\\b${wrong}\\b`, 'gi');
