@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure Gemini API key
-api_key = "AIzaSyAdjup1wdoRP0GrOFuixnfxt9AgepmWR_8"  # Replace with your actual Gemini API key
+api_key = "AIzaSyAdjup1wdoRP0GrOFuixnfxt9AgepmWR_8"  # Replace with your actual Gemini API key just 
 if not api_key:
     raise ValueError("GOOGLE_API_KEY is not set!")
 
