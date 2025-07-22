@@ -1,519 +1,496 @@
-from flask import Flask, request, jsonify, send_from_directory, Response
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import json
 import os
-import time
-import logging
-import subprocess
-import tempfile
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from difflib import SequenceMatcher
+import re
 import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted
-from elevenlabs import ElevenLabs
-#from elevenlabs.client import ApiError
+from dotenv import load_dotenv
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+load_dotenv()
 
-# Hardcode API keys (replace with environment variables in production)
-GOOGLE_API_KEY = "AIzaSyBIysFdLs3hEmd5GOiOIbLoCphWOEckLgw"  # Replace with your Gemini API key
-ELEVENLABS_API_KEY = "sk_5ba950b061ec7cb7871f72ee6996d36bcacc32f5095f97b7"  # Replace with your new ElevenLabs API key
-ELEVENLABS_VOICE_FEMALE = "L0yTtpRXzdyzQlzALhgD"  # Rachel (female, for index.html)
-ELEVENLABS_VOICE_MALE = "oTQK6KgOJHp8UGGZjwUu"  # Adam (male, for quiz.html)
-DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Fallback: Rachel
+# Configure Gemini API key
+api_key = "AIzaSyAdjup1wdoRP0GrOFuixnfxt9AgepmWR_8"  # Replace with your actual Gemini API key
+if not api_key:
+    raise ValueError("GOOGLE_API_KEY is not set!")
 
-# Validate API keys
-if not GOOGLE_API_KEY:
-    raise ValueError("GOOGLE_API_KEY is not set in the code!")
-if not ELEVENLABS_API_KEY:
-    raise ValueError("ELEVENLABS_API_KEY is not set in the code!")
-if not ELEVENLABS_VOICE_FEMALE or not ELEVENLABS_VOICE_MALE:
-    logger.warning("Voice IDs not set, using default voice ID: %s", DEFAULT_VOICE_ID)
-
-# Configure ElevenLabs API with retry
-valid_voice_ids = [DEFAULT_VOICE_ID]
-voice_names = {ELEVENLABS_VOICE_FEMALE: "Rachel", ELEVENLABS_VOICE_MALE: "Adam", DEFAULT_VOICE_ID: "Rachel"}
-try:
-    elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
-    for attempt in range(3):
-        try:
-            voices = elevenlabs_client.voices.get_all()
-            valid_voice_ids = [voice.voice_id for voice in voices.voices]
-            voice_names = {voice.voice_id: voice.name for voice in voices.voices}
-            logger.info("Valid voice IDs: %s", valid_voice_ids)
-            logger.info("Voice names: %s", voice_names)
-            break
-        except ApiError as e:
-            logger.error("ElevenLabs API initialization failed (attempt %d): %s, status_code: %s", attempt + 1, str(e), getattr(e, 'status_code', 'unknown'))
-            if e.status_code == 401:
-                logger.error("Invalid ElevenLabs API key. Please regenerate at https://elevenlabs.io/.")
-                break
-            elif attempt == 2:
-                logger.error("Max retries reached for ElevenLabs API initialization")
-                break
-            time.sleep(2)
-except Exception as e:
-    logger.error("Error initializing ElevenLabs client: %s", str(e))
-    logger.warning("Using default voice ID %s (Rachel) without validation due to API error", DEFAULT_VOICE_ID)
+genai.configure(api_key=api_key)
 
 app = Flask(__name__, static_folder='static')
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)
 
-# Create audio folder if not exists
-os.makedirs("static/audio", exist_ok=True)
+# Load JSON data
+def load_json_data(file_path):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not data:
+            raise ValueError(f"{file_path} is empty")
+        print(f"Successfully loaded {file_path}")
+        return data
+    except Exception as e:
+        print(f"Error loading {file_path}: {e}")
+        return {}
 
-# Fallback data
-FALLBACK_DATA = {
-    "products": [
-        {
-            "name": "UVMed Tinted Sunscreen Gel",
-            "description": "A lightweight, non-comedogenic sunscreen for acne-prone skin with broad-spectrum UV protection.",
-            "price": "$25",
-            "ingredients": "Zinc oxide, Niacinamide",
-            "category": "Skincare"
-        },
-        {
-            "name": "360 Block Sunscreen Cream",
-            "description": "A moisturizing sunscreen that protects against UV rays and blue light, ideal for acne-prone and sensitive skin.",
-            "ingredients": "Zinc oxide, moisturizing agents",
-            "category": "Skincare"
-        }
-    ],
-    "services": [
-        {
-            "name": "iDoc Academy",
-            "description": "Training for dermatologists with online courses and hands-on workshops.",
-            "features": "Online courses, hands-on workshops, certification programs"
-        },
-        {
-            "name": "BrandYou",
-            "description": "Private label service for dermatologists to create custom skin and hair products.",
-            "features": "Formulation, packaging, supply chain support"
-        }
-    ],
-    "pages": {
-        "https://ubiksolutions.com/about": {
-            "title": "About Us",
-            "meta_description": "UBIK Solutions provides innovative dermatology solutions.",
-            "category": "Company",
-            "sections": [
-                {"header": "Our Mission", "content": "To advance dermatology through innovation and quality products."},
-                {"header": "Global Presence", "content": "UBIK Solutions exports dermatology products to over 20 countries, including the US, Europe, and Asia."},
-                {"header": "Contact Information", "content": "Reach us at Office No.407, 4th Floor, Imperial Heights Tower-B, 150 FT Ring Road, Rajkot, Gujarat, India, 360005. Email: info@ubiksolution.com. Phone: +91 91045 69103."}
-            ]
-        }
-    }
+# Process JSON data into text chunks
+def process_json_data(data, chunk_size=1500):
+    text = ""
+    for key, value in data.items():
+        if isinstance(value, str):
+            text += f"{key}: {value}\n"
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    text += " ".join([f"{k}: {v}" for k, v in item.items()]) + "\n"
+        elif isinstance(value, dict):
+            text += f"{key}: " + " ".join([f"{k}: {v}" for k, v in value.items()]) + "\n"
+    chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+    print(f"Processed {len(chunks)} chunks from JSON data")
+    return chunks
+
+# Load and process JSON files
+print("⏳ Loading and parsing UBIK Solutions JSON data...")
+ubik_data = load_json_data("ubik_data.json")
+ubik_product_details = load_json_data("ubik_product_details.json")
+if not ubik_data or not ubik_product_details:
+    print("⚠️ Failed to load JSON data, using fallback.")
+text_chunks = process_json_data(ubik_data)
+product_text_chunks = process_json_data(ubik_product_details)
+print(f"✅ Loaded {len(text_chunks)} general text chunks and {len(product_text_chunks)} product text chunks.")
+
+# Normalize UBIK variations
+def normalize_to_ubik(message):
+    variations = ['ubiq', 'ubit', 'ubikx', 'ubikz', 'ubiqs', 'ubiksolution', 'ubiksolutionz', 'ubique']
+    for v in variations:
+        message = re.sub(rf"\b{v}\b", "UBIK Solutions", message, flags=re.IGNORECASE)
+    return message
+
+# Check if query is related to UBIK or products
+def is_related_to_ubik(text):
+    text = text.lower()
+    keywords = ['ubik', 'ubiq', 'ubikx', 'ubikz', 'ubiqs', 'ubiksolution', 'ubik solutions', 'ubiksolutionz', 'dermatology', 'cosmetology', 'skin', 'hair', 'haircare', 'scalp', 'idoc', 'brandyou', 'vistaderm', 'ubique', 'anti-acne', 'anti-ageing', 'anti-fungal']
+    for word in re.findall(r'\w+', text):
+        for keyword in keywords:
+            ratio = SequenceMatcher(None, word, keyword).ratio()
+            if ratio >= 0.6:
+                print(f"Matched keyword: {word} -> {keyword} (ratio: {ratio})")
+                return True
+    print(f"No relevant keywords found in: {text}")
+    return False
+
+# Check if query is product-related
+def is_product_related(text):
+    text = text.lower()
+    product_keywords = ['anti-acne', 'anti-ageing', 'anti-fungal', 'product', 'cream', 'serum', 'ingredients', 'price', 'cost', 'how much', 'sebogel', 'benzonext', 'aczee', 'sebollic', 'saligly', 'sebonia', 'sefpil', 'o wash', 'cutishine', 'acmed', 'actreat', 'reti k']
+    for keyword in product_keywords:
+        if keyword in text:
+            return True
+    return False
+
+# Check if query asks for price
+def is_price_query(text):
+    text = text.lower()
+    price_keywords = ['price', 'cost', 'how much', 'how expensive', 'what is the price', 'what does it cost']
+    for keyword in price_keywords:
+        if keyword in text:
+            return True
+    return False
+
+# Find relevant chunk for general queries
+def find_relevant_chunk(question, chunks):
+    if not chunks:
+        print("No chunks available for evaluation")
+        return "No relevant information available."
+    vectorizer = TfidfVectorizer().fit_transform([question] + chunks)
+    similarities = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()
+    best_index = similarities.argmax()
+    print(f"Selected chunk {best_index} with similarity {similarities[best_index]}")
+    return chunks[best_index]
+
+# Find specific product by name
+def find_product_by_name(query, product_details):
+    query = query.lower()
+    for category in product_details.get('product_categories', []):
+        for product in category.get('products', []):
+            if product.get('name', '').lower().find(query) != -1 or SequenceMatcher(None, query, product.get('name', '').lower()).ratio() >= 0.8:
+                return product, category.get('name')
+    return None, None
+
+# Format product details for response
+def format_product_details(product, category, query):
+    if not product:
+        return "I couldn't find specific details on that product. Please ask about another UBIK Solutions product! 😊"
+    
+    name = product.get('name', 'Unknown')
+    price = product.get('price', 'N/A')
+    description = product.get('description', 'No description available.')
+    ingredients = product.get('ingredients', 'N/A')
+    url = product.get('url', '#')
+    
+    # Define default usage and safety info for products
+    usage_info = (
+        "1. Wash and dry your face or affected area thoroughly.\n"
+        "2. Take a small amount of the product on your fingertips.\n"
+        "3. Apply gently to the affected areas, massaging in a circular motion until absorbed.\n"
+        "4. Use twice or thrice daily, or as directed by a dermatologist.\n"
+        "5. Avoid contact with eyes, mouth, or mucous membranes, and perform a patch test before full application."
+    )
+    safety_info = (
+        "- Not recommended for children under 3 years of age.\n"
+        "- Consult a dermatologist before use if pregnant or breastfeeding.\n"
+        "- May cause mild skin irritation; reduce application frequency if dryness or peeling occurs.\n"
+        "- Store in a cool, dry place away from direct sunlight."
+    )
+    
+    # Customize benefits based on category and description
+    benefits = [
+        "Reduces acne, blackheads, and whiteheads effectively.",
+        "Controls excess oil production for a clearer complexion.",
+        "Soothes inflammation and redness caused by acne.",
+        "Non-comedogenic and paraben-free, suitable for sensitive skin."
+    ] if category == "Anti-Acne" else [
+        "Reduces visible signs of aging like wrinkles and fine lines.",
+        "Enhances skin elasticity and firmness.",
+        "Diminishes age spots and promotes even skin tone.",
+        "Deeply hydrates and strengthens the skin barrier."
+    ]
+
+    # Conditionally include price if requested
+    key_details = [
+        f"- **Product Name**: {name}",
+        f"- **Category**: {category}",
+        f"- **Description**: {description}",
+        f"- **Ingredients**: {ingredients}",
+        f"- **URL**: [{name}]({url})"
+    ]
+    if is_price_query(query):
+        key_details.insert(1, f"- **Price**: {price}")
+
+    response = (
+        f"**{name} Overview**  \n"
+        f"{name} is a highly effective {category.lower()} product from UBIK Solutions, designed to {description.split('.')[0].lower()}. "
+        f"It’s crafted to deliver radiant, healthy skin with a lightweight, non-greasy formula. 😊\n\n"
+        
+        f"**Key Details**  \n"
+        f"{chr(10).join(key_details)}  \n\n"
+        
+        f"**Additional Benefits**  \n"
+        f"{chr(10).join(f'- {benefit}' for benefit in benefits)}  \n\n"
+        
+        f"**How to Use**  \n"
+        f"{usage_info}  \n\n"
+        
+        f"**Safety Information**  \n"
+        f"{safety_info}  \n\n"
+        
+        f"**Anything Specific You’d Like to Know?**  \n"
+        f"Is there a particular aspect of {name} you’re curious about, such as its effectiveness for specific skin types, comparison with other UBIK products, or tips for incorporating it into your skincare routine? Let me know! 🤔"
+    )
+    return response
+
+# Conversational responses for common phrases
+conversational_phrases = {
+    'okay': 'Got it! 😊',
+    'ok': 'Alright, cool! 😎',
+    'yeah': 'Cool, what’s next? 🤗',
+    'yes': 'Alright, anything else I can help with? 😊',
+    'yep': 'Nice, what’s up? 👍',
+    'sure': 'No problem, what’s on your mind? 😄',
+    'thanks': 'You’re welcome! 😊',
+    'thank you': 'Happy to help! What’s next? 😄',
+    'hi': 'Hey there! How can I assist you today? 😊',
+    'hello': 'Hi! Ready to chat about UBIK Solutions or our products? 😄',
+    'hey': 'Yo! What’s up? 😎',
+    'good morning': 'Morning! How can I make your day even better? ☀️',
+    'good evening': 'Evening! What’s on your mind tonight? 🌙',
+    'bye': 'See ya later! 😊',
+    'goodbye': 'Catch you next time! 👋',
+    'thank u': 'No prob, happy to help! 😄',
+    'tell me more': 'Sure thing! What do you want to dive into? 🤓',
+    'what about': 'Ooh, tell me more about that! 😊',
+    'how does it work': 'Great question! What specifically are you curious about? 🤔',
+    'what else': 'Plenty more to explore! What’s next on your list? 😄'
 }
 
-# Load ubik_data.json for evaluation
-def load_data():
-    try:
-        with open('ubik_data.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        logger.warning("ubik_data.json not found, using fallback data")
-        return FALLBACK_DATA
-
-@app.route('/generate-audio', methods=['POST'])
-def generate_audio():
-    try:
-        data = request.get_json()
-        if not data or 'text' not in data:
-            logger.error("Invalid or missing JSON payload: %s", data)
-            return jsonify({'error': 'No text provided'}), 400
-
-        text = data.get('text', '')
-        voice_type = data.get('voice', 'female')
-        voice_id = ELEVENLABS_VOICE_FEMALE if voice_type == 'female' else ELEVENLABS_VOICE_MALE
-
-        if not text:
-            logger.error("Empty text provided for audio generation")
-            return jsonify({'error': 'No text provided'}), 400
-
-        logger.info("Requested voice_type: %s, selected voice_id: %s (%s)", 
-                    voice_type, voice_id, voice_names.get(voice_id, 'Unknown'))
-
-        if voice_id not in valid_voice_ids:
-            logger.error("Voice ID %s (%s) not available in valid_voice_ids: %s", 
-                         voice_id, voice_names.get(voice_id, 'Unknown'), valid_voice_ids)
-            return jsonify({'error': f'Voice ID {voice_id} ({voice_names.get(voice_id, "Unknown")}) not available. Check ElevenLabs dashboard.'}), 400
-
-        model = "eleven_multilingual_v2"
-        logger.info("Generating audio for text: %s..., voice_id: %s (%s), model: %s", 
-                    text[:50], voice_id, voice_names.get(voice_id, 'Unknown'), model)
-        
-        audio_stream = elevenlabs_client.text_to_speech.convert(
-            voice_id=voice_id,
-            text=text,
-            model_id=model,
-            output_format="mp3_44100_128",
-            voice_settings={"stability": 0.5, "similarity_boost": 0.5, "speed": 0.8}
-        )
-        logger.info("Audio generated successfully for voice_id: %s (%s)", 
-                    voice_id, voice_names.get(voice_id, 'Unknown'))
-        return Response(audio_stream, mimetype='audio/mpeg', headers={"Content-Disposition": "inline"})
-    except Exception as e:
-        logger.error("Error generating audio: %s", str(e))
-        return jsonify({'error': f'Failed to generate audio: {str(e)}'}), 500
-
+# Serve UI pages
 @app.route('/')
-def serve_index():
-    logger.info("Serving index.html from static folder")
+def index():
     return send_from_directory('static', 'index.html')
 
-@app.route('/quiz')
-def serve_quiz():
-    logger.info("Serving quiz.html from static folder")
-    return send_from_directory('static', 'quiz.html')
-
 @app.route('/quiz-instruction')
-def serve_quiz_instruction():
-    logger.info("Serving quiz-instruction.html from static folder")
+def quiz_instruction():
     return send_from_directory('static', 'quiz-instruction.html')
 
-@app.route('/api/chat', methods=['POST'])
-def chat():
-    try:
-        data = request.get_json()
-        message = data.get('message', '').lower()
-        logger.info("User message: %s", message)
-        
-        scraped_data = load_data()
-        chunks = []
-        for product in scraped_data.get('products', []):
-            chunks.append(f"Product: {product.get('name', '')}. Description: {product.get('description', '')}. Ingredients: {product.get('ingredients', '')}")
-        for service in scraped_data.get('services', []):
-            chunks.append(f"Service: {service.get('name', '')}. Description: {service.get('description', '')}")
-        for url, page in scraped_data.get('pages', {}).items():
-            for section in page.get('sections', []):
-                chunks.append(f"{section.get('header', '')}: {section.get('content', '')}")
+@app.route('/quiz')
+def quiz():
+    return send_from_directory('static', 'quiz.html')
 
-        logger.info("Loaded %d text chunks", len(chunks))
-        logger.debug("Sample chunks: %s", chunks[:2])
+@app.route('/<path:path>')
+def static_files(path):
+    return send_from_directory('static', path)
 
-        def find_relevant_chunk(query, chunks):
-            try:
-                vectorizer = TfidfVectorizer().fit_transform([query] + chunks)
-                similarities = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()
-                best_idx = similarities.argmax()
-                best_score = similarities[best_idx]
-                logger.info("Best chunk similarity score: %f", best_score)
-                return chunks[best_idx] if best_score > 0.2 else None
-            except Exception as e:
-                logger.error("Error in find_relevant_chunk: %s", str(e))
-                return None
-
-        relevant_chunk = find_relevant_chunk(message, chunks)
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        prompt = (
-            f"You are a knowledgeable assistant for UBIK Solutions, a dermatology company. "
-            f"Provide a concise answer (1-2 sentences) to the user's question based on this information: "
-            f"{relevant_chunk or 'No specific information available.'} "
-            f"If insufficient, use fallback data: {json.dumps(FALLBACK_DATA)}. "
-            f"For specific topics (e.g., global presence, contact information, acne-prone skin, products, services, mission), "
-            f"provide a detailed answer with all relevant details. "
-            f"Question: {message}"
-        )
-        try:
-            response = model.generate_content(prompt)
-            reply = response.text.strip() if hasattr(response, 'text') and response.text else "No response generated."
-        except ResourceExhausted as e:
-            logger.error("Gemini API quota exceeded: %s", str(e))
-            return jsonify({'error': 'Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.'}), 429
-        except Exception as e:
-            logger.error("Error generating content: %s", str(e))
-            return jsonify({'error': f'Failed to generate response: {str(e)}'}), 500
-        
-        # Add professional emojis and handle specific topics
-        if 'global presence' in message:
-            reply = "UBIK Solutions exports dermatology products to over 20 countries, including the US, Europe, and Asia, ensuring high-quality skincare solutions meet global demands. 🌍"
-        elif 'contact information' in message:
-            reply = "Reach UBIK Solutions at Office No.407, 4th Floor, Imperial Heights Tower-B, 150 FT Ring Road, Rajkot, Gujarat, India, 360005; Email: info@ubiksolution.com; Phone: +91 91045 69103. 📞"
-        elif 'acne-prone skin' in message or 'acne prone skin' in message:
-            reply = "UBIK Solutions offers UVMed Tinted Sunscreen Gel ($25, Zinc oxide, Niacinamide) and 360 Block Sunscreen Cream, both non-comedogenic and ideal for acne-prone skin. 🧴"
-        elif 'products' in message:
-            reply = "UBIK Solutions provides UVMed Tinted Sunscreen Gel ($25, Zinc oxide, Niacinamide) and 360 Block Sunscreen Cream, designed for acne-prone and sensitive skin. 🧴"
-        elif 'services' in message:
-            reply = "UBIK Solutions offers iDoc Academy for dermatologist training and BrandYou for custom skin/hair product creation, including formulation and packaging support. 📚"
-        elif 'mission' in message:
-            reply = "UBIK Solutions’ mission is to advance dermatology through innovative, high-quality products for global skincare needs. 📋"
-        else:
-            reply = f"{reply} 📋"
-
-        logger.info("Generated response: %s", reply[:100])
-        return jsonify({'reply': reply})
-    except Exception as e:
-        logger.error("Error in /api/chat: %s", str(e))
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
-
+# Quiz APIs
 @app.route('/api/questions', methods=['GET'])
 def get_questions():
     try:
-        questions = [
-            "What is the mission of UBIK Solutions?",
-            "Which products does UBIK Solutions offer for acne-prone skin?",
-            "What is the global presence of UBIK Solutions?",
-            "How can I contact UBIK Solutions?",
-            "What services does UBIK Solutions provide for dermatologists?"
+        prompt = f"""
+        You are an official representative of UBIK Solutions. Generate 5 open-ended quiz questions based on the following data about UBIK Solutions and its products. Focus on services, mission, processes, or product details (e.g., Anti-Acne, Anti-Ageing products). Each question should start with 'How', 'What', or 'Why'. Return the questions as a JSON array, e.g., ["question1", "question2", ...]. Do not mention 'customer reviews' or speculative information; base questions solely on the provided data.
+
+        General Data:
+        {json.dumps(ubik_data, indent=2)}
+
+        Product Data:
+        {json.dumps(ubik_product_details, indent=2)}
+        """
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        print("Quiz API response:", response.text)
+        questions = json.loads(response.text.strip()) if response.text.strip().startswith('[') else [
+            "How does UBIK Solutions leverage AI for dermatology applications?",
+            "What are the key services offered by UBIK Solutions?",
+            "Why is UBIK Solutions' approach to data processing unique?",
+            "What are the main ingredients in UBIK Solutions' Anti-Acne products?",
+            "How do UBIK Solutions' Anti-Ageing products benefit the skin?"
         ]
-        return jsonify(questions)
+        return jsonify(questions[:5])
     except Exception as e:
-        logger.error("Error in /api/questions: %s", str(e))
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+        print("Error generating questions:", e)
+        return jsonify([
+            "How does UBIK Solutions leverage AI for dermatology applications?",
+            "What are the key services offered by UBIK Solutions?",
+            "Why is UBIK Solutions' approach to data processing unique?",
+            "What are the main ingredients in UBIK Solutions' Anti-Acne products?",
+            "How do UBIK Solutions' Anti-Ageing products benefit the skin?"
+        ])
 
 @app.route('/api/evaluate', methods=['POST'])
 def evaluate_answer():
-    try:
-        data = request.get_json()
-        question = data.get('question', '').lower()
-        answer = data.get('answer', '').lower()
-        logger.info("Evaluating question: %s, answer: %s", question, answer)
+    data = request.get_json()
+    question = data.get('question', '')
+    answer = data.get('answer', '')
+    
+    # Log input for debugging
+    print(f"Evaluating question: {question}")
+    print(f"Answer: {answer}")
+    
+    # Check if JSON data is available
+    if not text_chunks or not product_text_chunks:
+        print("JSON data not loaded")
+        return jsonify({
+            'feedback': 'Error: JSON data not available. Please ensure ubik_data.json and ubik_product_details.json are loaded.',
+            'score': 0.0
+        })
 
+    # Handle skipped answers
+    if answer == 'SKIPPED':
+        print("Answer skipped")
+        return jsonify({
+            'feedback': 'No answer provided (skipped). Please provide an answer to demonstrate your knowledge.',
+            'score': 0.0
+        })
+
+    # Determine question type for specific feedback
+    is_product_question = is_product_related(question)
+    is_anti_ageing = 'anti-ageing' in question.lower() or 'aging' in question.lower()
+    is_anti_acne = 'anti-acne' in question.lower() or 'ingredients' in question.lower()
+    is_service_question = not is_product_question
+
+    # Define feedback templates based on question type
+    feedback_templates = {
+        'service_correct': "Your answer is mostly correct and includes relevant details about UBIK Solutions' services. To improve, add specifics like how iDoc Academy supports dermatologists or AI-driven dermatology applications.",
+        'service_partial': "Your answer contains some relevant points but is incomplete. Include more details about UBIK’s mission, services, or iDoc Academy to strengthen your response.",
+        'service_incorrect': "Your answer does not fully address the question. Review UBIK Solutions’ mission and services, such as iDoc Academy or AI-driven dermatology solutions, for more information.",
+        'anti_acne_correct': "Your answer is mostly correct and includes relevant details about Anti-Acne products. To improve, specify ingredients like Salicylic Acid or Niacinamide used in products like Sebogel.",
+        'anti_acne_partial': "Your answer mentions relevant aspects of Anti-Acne products but is incomplete. Include specific ingredients or benefits, such as those in Sebogel, to strengthen your response.",
+        'anti_acne_incorrect': "Your answer does not fully address the question. Review product details like Anti-Acne ingredients (e.g., Salicylic Acid, Niacinamide in Sebogel) for more information.",
+        'anti_ageing_correct': "Your answer is mostly correct and includes relevant details about Anti-Ageing products. To improve, specify benefits or ingredients like Encapsulated Retinol in Reti K Cream.",
+        'anti_ageing_partial': "Your answer mentions relevant aspects of Anti-Ageing products but is incomplete. Include specific benefits or ingredients, such as those in Reti K Cream, to strengthen your response.",
+        'anti_ageing_incorrect': "Your answer does not fully address the question. Review product details like Anti-Ageing ingredients (e.g., Encapsulated Retinol in Reti K Cream) for more information."
+    }
+
+    # Simplified prompt for evaluation
+    prompt = f"""
+    You are an official representative of UBIK Solutions. Evaluate the following answer to the question: '{question}'
+    Answer: '{answer}'
+    
+    Provide feedback on the correctness and completeness of the answer based solely on the provided data. Do not mention 'customer reviews' or speculative information. Return a JSON object with 'feedback' (string) and 'score' (float, 0 to 1). For correct or partially correct answers, provide specific feedback referencing the relevant data (e.g., iDoc Academy, product ingredients). For incorrect or incomplete answers, suggest improvements tied to the data. Assign a partial score (0.5–0.8) if the answer contains relevant keywords, even if incomplete.
+
+    General Data:
+    {json.dumps(ubik_data, indent=2)}
+
+    Product Data:
+    {json.dumps(ubik_product_details, indent=2)}
+    """
+    try:
         model = genai.GenerativeModel('gemini-1.5-flash')
-        scraped_data = load_data()
-        prompt = (
-            f"Evaluate the following answer for the question: '{question}'. "
-            f"Answer: '{answer}'. "
-            f"Provide detailed feedback and a score (0 to 1) based on accuracy and relevance, "
-            f"using information from: {json.dumps(scraped_data)}. "
-            f"If the answer is 'SKIPPED', assign a score of 0.0 and note it was skipped. "
-            f"For correct answers, assign 0.8 or higher; for partially correct answers, assign 0.5; "
-            f"for incorrect answers, assign 0.3 or lower."
-        )
+        response = model.generate_content(prompt)
+        print("Gemini API raw response:", response.text)
+        
+        # Attempt to parse response as JSON
         try:
-            response = model.generate_content(prompt)
-            feedback = response.text.strip() if hasattr(response, 'text') and response.text else "No feedback generated."
-        except ResourceExhausted as e:
-            logger.error("Gemini API quota exceeded: %s", str(e))
-            return jsonify({'error': 'Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.'}), 429
-        score = 0.8 if 'correct' in feedback.lower() else 0.5 if answer != 'skipped' else 0.0
-        return jsonify({'error': None, 'feedback': feedback, 'score': score})
+            evaluation = json.loads(response.text.strip())
+            if not isinstance(evaluation, dict) or 'feedback' not in evaluation or 'score' not in evaluation:
+                raise ValueError("Invalid response format")
+            # Validate score
+            evaluation['score'] = float(evaluation['score'])
+            if not 0 <= evaluation['score'] <= 1:
+                evaluation['score'] = 0.0
+                evaluation['feedback'] = "Invalid score returned; please try again."
+        except (json.JSONDecodeError, ValueError) as e:
+            print("Error parsing Gemini response:", e)
+            # Fallback evaluation logic
+            relevant_chunks = product_text_chunks if is_product_question else text_chunks
+            relevant_chunk = find_relevant_chunk(question, relevant_chunks)
+            
+            # Calculate similarity
+            vectorizer = TfidfVectorizer().fit_transform([answer.lower(), relevant_chunk.lower()])
+            similarity = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()[0]
+            score = min(max(similarity * 1.5, 0.0), 1.0)  # Scale similarity for better scoring
+            
+            # Boost score for relevant keywords
+            keywords = ['idoc', 'academy', 'ai', 'dermatology', 'anti-acne', 'anti-ageing', 'salicylic', 'niacinamide', 'retinol', 'acid']
+            answer_lower = answer.lower()
+            keyword_matches = sum(1 for keyword in keywords if keyword in answer_lower)
+            if keyword_matches > 0:
+                score = min(score + (keyword_matches * 0.25), 1.0)  # Increased boost for keywords
+            
+            print(f"Similarity score: {score}, Keyword matches: {keyword_matches}")
+            
+            # Generate feedback based on question type and score
+            if is_anti_ageing:
+                feedback = feedback_templates['anti_ageing_correct'] if score >= 0.8 else feedback_templates['anti_ageing_partial'] if score >= 0.5 else feedback_templates['anti_ageing_incorrect']
+            elif is_anti_acne:
+                feedback = feedback_templates['anti_acne_correct'] if score >= 0.8 else feedback_templates['anti_acne_partial'] if score >= 0.5 else feedback_templates['anti_acne_incorrect']
+            else:
+                feedback = feedback_templates['service_correct'] if score >= 0.8 else feedback_templates['service_partial'] if score >= 0.5 else feedback_templates['service_incorrect']
+            
+            evaluation = {'feedback': feedback, 'score': score}
+        
+        print("Evaluation result:", evaluation)
+        return jsonify(evaluation)
     except Exception as e:
-        logger.error("Error in /api/evaluate: %s", str(e))
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+        print("Evaluation error:", str(e))
+        # Enhanced fallback for any errors
+        relevant_chunks = product_text_chunks if is_product_question else text_chunks
+        relevant_chunk = find_relevant_chunk(question, relevant_chunks)
+        
+        vectorizer = TfidfVectorizer().fit_transform([answer.lower(), relevant_chunk.lower()])
+        similarity = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()[0]
+        score = min(max(similarity * 1.5, 0.0), 1.0)
+        
+        # Boost score for relevant keywords
+        keywords = ['idoc', 'academy', 'ai', 'dermatology', 'anti-acne', 'anti-ageing', 'salicylic', 'niacinamide', 'retinol', 'acid']
+        answer_lower = answer.lower()
+        keyword_matches = sum(1 for keyword in keywords if keyword in answer_lower)
+        if keyword_matches > 0:
+            score = min(score + (keyword_matches * 0.25), 1.0)
+        
+        print(f"Fallback similarity score: {score}, Keyword matches: {keyword_matches}")
+        
+        # Generate feedback based on question type
+        if is_anti_ageing:
+            feedback = feedback_templates['anti_ageing_correct'] if score >= 0.8 else feedback_templates['anti_ageing_partial'] if score >= 0.5 else feedback_templates['anti_ageing_incorrect']
+        elif is_anti_acne:
+            feedback = feedback_templates['anti_acne_correct'] if score >= 0.8 else feedback_templates['anti_acne_partial'] if score >= 0.5 else feedback_templates['anti_acne_incorrect']
+        else:
+            feedback = feedback_templates['service_correct'] if score >= 0.8 else feedback_templates['service_partial'] if score >= 0.5 else feedback_templates['service_incorrect']
+        
+        return jsonify({
+            'feedback': feedback,
+            'score': score
+        })
 
-@app.route('/api/generate-report', methods=['POST'])
-def generate_report():
-    try:
-        data = request.get_json()
-        if not data or 'answers' not in data:
-            logger.error("Invalid or missing JSON payload: %s", data)
-            return jsonify({'error': 'No answers provided'}), 400
+# Chatbot API
+@app.route('/api/chat', methods=['POST'])
+def chatbot_reply():
+    data = request.get_json()
+    msg = data.get("message", "")
+    user_message = msg["text"] if isinstance(msg, dict) and "text" in msg else msg
+    print("User message:", user_message)
 
-        answers = data.get('answers', {})
-        questions = [
-            "What is the mission of UBIK Solutions?",
-            "Which products does UBIK Solutions offer for acne-prone skin?",
-            "What is the global presence of UBIK Solutions?",
-            "How can I contact UBIK Solutions?",
-            "What services does UBIK Solutions provide for dermatologists?"
-        ]
-        total_questions = len(questions)
-        results = []
+    # Check for exact conversational phrases
+    user_message_lower = user_message.lower().strip()
+    if user_message_lower in conversational_phrases:
+        print(f"Matched conversational phrase: {user_message_lower}")
+        return jsonify({"reply": conversational_phrases[user_message_lower]})
 
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        scraped_data = load_data()
-        total_score = 0.0
+    # Fuzzy matching for conversational phrases
+    for phrase in conversational_phrases:
+        if SequenceMatcher(None, user_message_lower, phrase).ratio() >= 0.8:
+            print(f"Fuzzy matched conversational phrase: {user_message_lower} -> {phrase}")
+            return jsonify({"reply": conversational_phrases[phrase]})
 
-        for i, question in enumerate(questions):
-            answer = answers.get(str(i), 'SKIPPED').lower()
-            prompt = (
-                f"Evaluate the following answer for the question: '{question}'. "
-                f"Answer: '{answer}'. "
-                f"Provide detailed feedback and a score (0 to 1) based on accuracy and relevance, "
-                f"using information from: {json.dumps(scraped_data)}. "
-                f"If the answer is 'SKIPPED', assign a score of 0.0 and note it was skipped. "
-                f"For correct answers, assign 0.8 or higher; for partially correct answers, assign 0.5; "
-                f"for incorrect answers, assign 0.3 or lower."
-            )
-            try:
-                response = model.generate_content(prompt)
-                feedback = response.text.strip() if hasattr(response, 'text') and response.text else "No feedback generated."
-            except ResourceExhausted as e:
-                logger.error("Gemini API quota exceeded: %s", str(e))
-                return jsonify({'error': 'Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.'}), 429
-            score = 0.8 if 'correct' in feedback.lower() else 0.5 if answer != 'skipped' else 0.0
-            total_score += score
-            results.append({
-                'question': question,
-                'answer': answer,
-                'feedback': feedback,
-                'score': score
-            })
+    # Check if it's UBIK-related
+    if is_related_to_ubik(user_message):
+        normalized_message = normalize_to_ubik(user_message)
+        # Handle product-related queries
+        if is_product_related(normalized_message):
+            # Try to find a specific product match
+            product, category = find_product_by_name(normalized_message, ubik_product_details)
+            if product:
+                reply = format_product_details(product, category, normalized_message)
+            else:
+                context = find_relevant_chunk(normalized_message, product_text_chunks)
+                prompt = f"""
+                You are an official representative of UBIK Solutions. Respond to the following product-related question based solely on the provided data. Do not mention 'customer reviews' or speculative information. Respond in a short, clear, and professional manner, using 1 or 2 relevant emojis. If no relevant information is found, say: "I couldn't find specific details on that. Please ask another question about UBIK Solutions' products! 😊"
 
-        average_score = total_score / total_questions if total_questions > 0 else 0.0
+                Product Data:
+                {json.dumps(ubik_product_details, indent=2)}
 
-        # Generate HTML report
-        html_content = """
-        <div style='font-family: Roboto, sans-serif; padding: 1rem;'>
-            <h2>UBIK Solutions Quiz Summary Report</h2>
-            <p>Generated on July 22, 2025, 10:03 AM IST</p>
-            <p>This report summarizes the answers provided for the UBIK Solutions quiz, evaluated against the company’s data from <code>ubik_data.json</code> using the Gemini API. Each answer is scored from 0 to 1 based on accuracy and relevance.</p>
-            <table style='width: 100%; border-collapse: collapse; margin-top: 1rem;'>
-                <tr style='background-color: #E91E63; color: white;'>
-                    <th style='padding: 8px; border: 1px solid #ddd;'>Question</th>
-                    <th style='padding: 8px; border: 1px solid #ddd;'>Answer</th>
-                    <th style='padding: 8px; border: 1px solid #ddd;'>Feedback</th>
-                    <th style='padding: 8px; border: 1px solid #ddd;'>Score</th>
-                </tr>
-"""
-        for result in results:
-            question = result['question'].replace("'", "'").replace('"', '"')
-            answer = result['answer'].replace("'", "'").replace('"', '"')
-            feedback = result['feedback'].replace("'", "'").replace('"', '"')
-            score = result['score']
-            html_content += f"""
-                <tr>
-                    <td style='padding: 8px; border: 1px solid #ddd;'>{question}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd;'>{answer}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd;'>{feedback}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{score}</td>
-                </tr>
-"""
-        html_content += f"""
-            </table>
-            <h3 style='margin-top: 1rem;'>Overall Score</h3>
-            <p>The average score is {average_score:.2f}.</p>
-        </div>
-"""
-
-        logger.info("Generated HTML report for %d answers", len(answers))
-        return Response(html_content, mimetype='text/html')
-    except Exception as e:
-        logger.error("Error generating report: %s", str(e))
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
-
-@app.route('/api/download-report', methods=['POST'])
-def download_report():
-    try:
-        data = request.get_json()
-        if not data or 'answers' not in data:
-            logger.error("Invalid or missing JSON payload for PDF: %s", data)
-            return jsonify({'error': 'No answers provided'}), 400
-
-        answers = data.get('answers', {})
-        questions = [
-            "What is the mission of UBIK Solutions?",
-            "Which products does UBIK Solutions offer for acne-prone skin?",
-            "What is the global presence of UBIK Solutions?",
-            "How can I contact UBIK Solutions?",
-            "What services does UBIK Solutions provide for dermatologists?"
-        ]
-        total_questions = len(questions)
-        total_score = 0.0
-        results = []
-
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        scraped_data = load_data()
-
-        for i, question in enumerate(questions):
-            answer = answers.get(str(i), 'SKIPPED').lower()
-            prompt = (
-                f"Evaluate the following answer for the question: '{question}'. "
-                f"Answer: '{answer}'. "
-                f"Provide detailed feedback and a score (0 to 1) based on accuracy and relevance, "
-                f"using information from: {json.dumps(scraped_data)}. "
-                f"If the answer is 'SKIPPED', assign a score of 0.0 and note it was skipped. "
-                f"For correct answers, assign 0.8 or higher; for partially correct answers, assign 0.5; "
-                f"for incorrect answers, assign 0.3 or lower."
-            )
-            try:
-                response = model.generate_content(prompt)
-                feedback = response.text.strip() if hasattr(response, 'text') and response.text else "No feedback generated."
-            except ResourceExhausted as e:
-                logger.error("Gemini API quota exceeded: %s", str(e))
-                return jsonify({'error': 'Gemini API quota exceeded. Please try again later or upgrade your plan at https://ai.google.dev/gemini-api/docs/rate-limits.'}), 429
-            score = 0.8 if 'correct' in feedback.lower() else 0.5 if answer != 'skipped' else 0.0
-            total_score += score
-            results.append({
-                'question': question,
-                'answer': answer,
-                'feedback': feedback,
-                'score': score
-            })
-
-        average_score = total_score / total_questions if total_questions > 0 else 0.0
-
-        # Generate LaTeX content
-        latex_content = r"""
-\documentclass[a4paper,12pt]{article}
-\usepackage{geometry}
-\geometry{margin=1in}
-\usepackage{parskip}
-\setlength{\parindent}{0pt}
-\setlength{\parskip}{1em}
-\usepackage{booktabs}
-\usepackage{longtable}
-\usepackage{hyperref}
-\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
-\usepackage{titling}
-\usepackage{xcolor}
-\usepackage{enumitem}
-\setlist[itemize]{leftmargin=*}
-\usepackage{helvet}
-\renewcommand{\familydefault}{\sfdefault}
-
-\title{UBIK Solutions Quiz Summary Report}
-\author{AI Assistant}
-\date{July 22, 2025}
-
-\begin{document}
-
-\maketitle
-\section*{Summary Report for UBIK Solutions Quiz}
-This report summarizes the answers provided for the five questions in the UBIK Solutions quiz, evaluated against the company’s data using the Gemini API. Each answer is scored from 0 to 1 based on accuracy and relevance, using information from \texttt{ubik_data.json}. Generated on July 22, 2025, 10:03 AM IST.
-
-\section*{Detailed Results}
-\begin{longtable}{p{0.3\textwidth} p{0.3\textwidth} p{0.3\textwidth} p{0.1\textwidth}}
-\toprule
-\textbf{Question} & \textbf{Answer} & \textbf{Feedback} & \textbf{Score} \\
-\midrule
-\endhead
-"""
-        for result in results:
-            question = result['question'].replace('&', r'\&').replace('_', r'\_').replace('%', r'\%')
-            answer = result['answer'].replace('&', r'\&').replace('_', r'\_').replace('%', r'\%')
-            feedback = result['feedback'].replace('&', r'\&').replace('_', r'\_').replace('%', r'\%')
-            score = result['score']
-            latex_content += f"{question} & {answer} & {feedback} & {score} \\\\\n\\midrule\n"
-
-        average_score = total_score / total_questions if total_questions > 0 else 0.0
-        latex_content += r"""
-\bottomrule
-\end{longtable}
-
-\section*{Overall Score}
-The average score across all questions is calculated as follows: \\
-\[\frac{""" + f"{'+'.join(str(r['score']) for r in results)}{{{total_questions}}} = {average_score:.2f}" + r"""\]
-
-\end{document}
-"""
-
-        # Write LaTeX to temporary file and compile to PDF
-        with tempfile.NamedTemporaryFile(suffix='.tex', delete=False) as tex_file:
-            tex_file.write(latex_content.encode('utf-8'))
-            tex_file_path = tex_file.name
-
-        pdf_path = tex_file_path.replace('.tex', '.pdf')
-        try:
-            subprocess.run(['latexmk', '-pdf', '-interaction=nonstopmode', tex_file_path], check=True)
-            with open(pdf_path, 'rb') as f:
-                pdf_data = f.read()
-            os.unlink(tex_file_path)
-            for ext in ['.aux', '.log', '.out', '.pdf']:
+                Question: {normalized_message}
+                """
                 try:
-                    os.unlink(tex_file_path.replace('.tex', ext))
-                except FileNotFoundError:
-                    pass
-            return Response(pdf_data, mimetype='application/pdf', headers={"Content-Disposition": "attachment;filename=quiz_summary_report.pdf"})
-        except subprocess.CalledProcessError as e:
-            logger.error("Error compiling LaTeX to PDF: %s", str(e))
-            return jsonify({'error': 'Failed to generate PDF report'}), 500
-    except Exception as e:
-        logger.error("Error in /api/download-report: %s", str(e))
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    response = model.generate_content(prompt)
+                    print("Gemini API response:", response.text)
+                    reply = response.text.strip()
+                    if not reply or "sorry" in reply.lower() or "cannot" in reply.lower() or "not enough" in reply.lower():
+                        reply = "I couldn't find specific details on that. Please ask another question about UBIK Solutions' products! 😊"
+                except Exception as e:
+                    print("Chat Error:", e)
+                    reply = "I couldn't find specific details on that. Please ask another question about UBIK Solutions' products! 😊"
+        else:
+            context = find_relevant_chunk(normalized_message, text_chunks)
+            prompt = f"""
+            You are an official representative of UBIK Solutions. Respond to the following question based solely on the provided data. Do not mention 'customer reviews' or speculative information. Respond in a short, clear, and professional manner, using 1 or 2 relevant emojis. If no relevant information is found, say: "I couldn't find specific details on that. Please ask another question about UBIK Solutions! 😊"
 
-if __name__ == '__main__':
-    app.run(debug=True)
+            General Data:
+            {json.dumps(ubik_data, indent=2)}
+
+            Question: {normalized_message}
+            """
+            try:
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                response = model.generate_content(prompt)
+                print("Gemini API response:", response.text)
+                reply = response.text.strip()
+                if not reply or "sorry" in reply.lower() or "cannot" in reply.lower() or "not enough" in reply.lower():
+                    reply = "I couldn't find specific details on that. Please ask another question about UBIK Solutions! 😊"
+            except Exception as e:
+                print("Chat Error:", e)
+                reply = "I couldn't find specific details on that. Please ask another question about UBIK Solutions! 😊"
+    else:
+        # Free-flowing conversational response
+        prompt = f"""
+        You are a friendly, conversational chatbot for UBIK Solutions. Respond to the following user input in a natural, engaging way, as if continuing a casual conversation. Keep the tone professional but friendly, and use 1 or 2 relevant emojis. Do not mention 'customer reviews' or speculative information.
+
+        User input: {user_message}
+        """
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt)
+            print("Gemini API response:", response.text)
+            reply = response.text.strip()
+            if not reply or "sorry" in reply.lower() or "cannot" in reply.lower() or "not enough" in reply.lower():
+                reply = "Hmm, not sure about that one! What's next? 😄"
+        except Exception as e:
+            print("Chat Error:", e)
+            reply = "Hmm, not sure about that one! What's next? 😄"
+
+    return jsonify({"reply": reply})
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
