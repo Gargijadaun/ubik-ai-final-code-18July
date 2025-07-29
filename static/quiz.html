@@ -223,7 +223,7 @@
         <div id="waveform"><div class="dot"></div></div>
       </div>
       <div id="results" class="results">
-        <h3>Results</h3>
+        <h3>Quiz Results</h3>
         <div id="feedback"></div>
       </div>
       <div id="summary-report" class="summary-report">
@@ -241,6 +241,7 @@
     let animations = {};
     let rootBone = null;
     let morphDict, morphInfluences;
+    let isSpeaking = false;
 
     function loadModelAnimations(gltf) {
       mixer = new THREE.AnimationMixer(gltf.scene);
@@ -275,7 +276,7 @@
         animations.Idle.play();
         console.log("Ensuring animation is playing");
       } else {
-        console.log("No animation to play"); //just to deply
+        console.log("No animation to play");
       }
     }
 
@@ -428,7 +429,39 @@
     let questions = [];
     let answers = {};
     const totalQuestions = 5;
-    const synth = window.speechSynthesis;
+
+    async function speakWithElevenLabs(text) {
+      try {
+        const response = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        if (!response.ok) throw new Error('TTS request failed');
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audio.play();
+        audio.onplay = () => {
+          isSpeaking = true;
+          playTalkingAnimation();
+          startMouthAnimation();
+        };
+        audio.onended = () => {
+          isSpeaking = false;
+          stopTalkingAnimation();
+          stopMouthAnimation();
+        };
+      } catch (error) {
+        console.error('TTS error:', error);
+        document.getElementById('questionText').textContent += ' (Failed to speak question)';
+      }
+    }
+
+    function speakQuestion(text) {
+      if (!text || typeof text !== "string") return;
+      speakWithElevenLabs(text);
+    }
 
     function switchTab(tab) {
       const assistBtn = document.getElementById('assistBtn');
@@ -442,36 +475,6 @@
         assistBtn.classList.remove('active');
         location.href = '/quiz';
       }
-    }
-
-    function selectVoice(utter) {
-      const voices = synth.getVoices();
-      console.log('Available voices:', voices.map(v => ({ name: v.name, lang: v.lang })));
-      const maleVoice = voices.find(v => /david|mark|male|guy|daniel|richard|george|google us english male/i.test(v.name.toLowerCase()));
-      if (!maleVoice) {
-        console.warn('No male voice available, selecting default English voice');
-        utter.voice = voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang)) || voices[0];
-      } else {
-        utter.voice = maleVoice;
-      }
-      utter.rate = 0.9;
-      utter.pitch = 1.0;
-      console.log('Selected male voice:', maleVoice?.name || utter.voice?.name || 'None');
-    }
-
-    function speakQuestion(text) {
-      const noEmojiText = text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
-      const utter = new SpeechSynthesisUtterance(noEmojiText);
-      selectVoice(utter);
-      utter.onstart = () => {
-        playTalkingAnimation();
-        startMouthAnimation();
-      };
-      utter.onend = () => {
-        stopTalkingAnimation();
-        stopMouthAnimation();
-      };
-      synth.speak(utter);
     }
 
     function displayQuestion() {
@@ -534,7 +537,7 @@
       document.getElementById('waveform').style.display = 'none';
     };
 
-    fetch('/api/questions')
+    fetch('/api/quiz-questions')
       .then(res => res.json())
       .then(data => {
         questions = data.map(q => {
@@ -554,7 +557,6 @@
       let correctAnswers = 0;
       const feedback = {};
 
-      // Initialize feedback for all questions to prevent undefined errors
       for (let i = 0; i < totalQuestions; i++) {
         feedback[i] = 'No feedback available; please try again.';
       }
@@ -584,53 +586,96 @@
         }
       })).then(() => {
         const avg = (totalScore / totalQuestions).toFixed(2);
-        let resultText = `<strong>Your average score: ${avg}/1.0</strong><br>`;
-        resultText += `You answered ${correctAnswers} out of ${totalQuestions} questions correctly.<br><br>`;
-        resultText += `<strong>Feedback:</strong><br>`;
+        const percentage = ((avg / 1.0) * 100).toFixed(0);
+        let resultText = `<strong>Average Score: ${avg}/1.0 (${percentage}%)</strong><br>`;
+        resultText += `Correct Answers: ${correctAnswers} out of ${totalQuestions}<br><br>`;
+        resultText += `<strong>Per-Question Feedback:</strong><br>`;
         for (let i in feedback) {
-          resultText += `Question ${parseInt(i) + 1}: ${feedback[i] || 'No feedback available.'}<br>`;
+          resultText += `Question ${parseInt(i) + 1}: ${feedback[i]}<br>`;
         }
         document.getElementById('results').style.display = 'block';
         document.getElementById('feedback').innerHTML = resultText;
 
-        // Generate summary report
-        let summaryText = `<strong>Summary of Your Performance</strong><br>`;
-        summaryText += `You completed the UBIK Solutions quiz with an average score of ${avg}/1.0, correctly answering ${correctAnswers} out of ${totalQuestions} questions.<br><br>`;
-        
-        // Assess understanding based on score
-        if (avg >= 0.8) {
-          summaryText += `Excellent work! You demonstrate a strong understanding of UBIK Solutions' services and products. Your answers show familiarity with key aspects like our mission, AI-driven dermatology solutions, and product details. Keep up the great work! 😊<br><br>`;
-        } else if (avg >= 0.5) {
-          summaryText += `Good effort! You have a solid foundation in understanding UBIK Solutions, but there are some areas to improve. Reviewing our services, such as AI dermatology applications or iDoc Academy, or product details, like Anti-Acne or Anti-Ageing ingredients, could strengthen your knowledge. 😄<br><br>`;
-        } else {
-          summaryText += `It looks like you could benefit from learning more about UBIK Solutions. Your answers suggest some gaps in knowledge about our mission, services, or products. Consider reviewing our core offerings, such as our Anti-Acne and Anti-Ageing products, to better understand our brand. We're here to help! 😊<br><br>`;
-        }
+        let summaryText = `<h3>UBIK Solutions Quiz Performance Report</h3>`;
+        summaryText += `<strong>Overall Performance</strong><br>`;
+        summaryText += `You completed the UBIK Solutions quiz, achieving an average score of ${avg}/1.0 (${percentage}%) with ${correctAnswers} out of ${totalQuestions} questions answered correctly.<br><br>`;
 
-        // Review of answers
-        summaryText += `<strong>Answer Reviews</strong><br>`;
+        // Strengths
+        const strengths = [];
+        for (let i in feedback) {
+          if (feedback[i].toLowerCase().includes('correct') || (answers[i] !== 'SKIPPED' && feedback[i].includes('UBIK'))) {
+            if (questions[i].toLowerCase().includes('anti-acne')) {
+              strengths.push('Strong understanding of UBIK Solutions’ Anti-Acne product line, such as Sebogel.');
+            } else if (questions[i].toLowerCase().includes('anti-ageing') || questions[i].toLowerCase().includes('aging')) {
+              strengths.push('Solid knowledge of UBIK Solutions’ Anti-Ageing products, such as Reti K Cream.');
+            } else {
+              strengths.push('Good grasp of UBIK Solutions’ services or mission, such as AI-driven dermatology.');
+            }
+          }
+        }
+        summaryText += `<strong>Strengths</strong><br>`;
+        if (strengths.length > 0) {
+          summaryText += `Your performance demonstrates the following strengths:<br>`;
+          strengths.forEach(s => summaryText += `- ${s}<br>`);
+        } else {
+          summaryText += `No specific strengths identified due to limited correct answers. Consider reviewing UBIK Solutions’ offerings for improvement.<br>`;
+        }
+        summaryText += `<br>`;
+
+        // Areas for Improvement
+        const improvements = [];
+        for (let i in feedback) {
+          if (answers[i] === 'SKIPPED' || feedback[i].toLowerCase().includes('incorrect') || feedback[i].toLowerCase().includes('incomplete')) {
+            if (questions[i].toLowerCase().includes('anti-acne')) {
+              improvements.push('Deepen your knowledge of UBIK Solutions’ Anti-Acne products, such as Sebogel’s ingredients (e.g., Salicylic Acid, Niacinamide).');
+            } else if (questions[i].toLowerCase().includes('anti-ageing') || questions[i].toLowerCase().includes('aging')) {
+              improvements.push('Learn more about UBIK Solutions’ Anti-Ageing products, such as Reti K Cream’s use of Encapsulated Retinol.');
+            } else {
+              improvements.push('Review UBIK Solutions’ services or mission, such as AI dermatology applications or iDoc Academy.');
+            }
+          }
+        }
+        summaryText += `<strong>Areas for Improvement</strong><br>`;
+        if (improvements.length > 0) {
+          summaryText += `To enhance your understanding, focus on the following areas:<br>`;
+          improvements.forEach(i => summaryText += `- ${i}<br>`);
+        } else {
+          summaryText += `No major areas for improvement identified. Continue to build on your strong performance.<br>`;
+        }
+        summaryText += `<br>`;
+
+        // Detailed Answer Review
+        summaryText += `<strong>Detailed Answer Review</strong><br>`;
         for (let i in feedback) {
           const question = questions[i] || 'Unknown question';
           const answer = answers[i] || 'No answer provided';
           summaryText += `<strong>Question ${parseInt(i) + 1}: ${question}</strong><br>`;
           summaryText += `Your Answer: ${answer === 'SKIPPED' ? 'Skipped' : answer}<br>`;
-          summaryText += `Feedback: ${feedback[i] || 'No feedback available.'}<br>`;
-          // Improved reference logic
+          summaryText += `Feedback: ${feedback[i]}<br>`;
           if (answer !== 'SKIPPED') {
             if (question.toLowerCase().includes('anti-acne') || question.toLowerCase().includes('ingredients')) {
-              summaryText += `Reference: This question relates to UBIK Solutions' Anti-Acne products, such as Sebogel with Salicylic Acid and Niacinamide for acne control. Your answer ${feedback[i] && feedback[i].toLowerCase().includes('correct') ? 'aligned well' : 'could better align'} with our product offerings.<br>`;
+              summaryText += `Reference: This question relates to UBIK Solutions' Anti-Acne products, such as Sebogel with Salicylic Acid and Niacinamide. Your answer ${feedback[i].toLowerCase().includes('correct') ? 'aligned well' : 'could better align'} with these details.<br>`;
             } else if (question.toLowerCase().includes('anti-ageing') || question.toLowerCase().includes('aging')) {
-              summaryText += `Reference: This question relates to UBIK Solutions' Anti-Ageing products, such as Reti K Cream with Encapsulated Retinol for reducing wrinkles. Your answer ${feedback[i] && feedback[i].toLowerCase().includes('correct') ? 'aligned well' : 'could better align'} with our product offerings.<br>`;
+              summaryText += `Reference: This question relates to UBIK Solutions' Anti-Ageing products, such as Reti K Cream with Encapsulated Retinol. Your answer ${feedback[i].toLowerCase().includes('correct') ? 'aligned well' : 'could better align'} with these details.<br>`;
             } else {
-              summaryText += `Reference: This question ties to UBIK Solutions' mission or services, such as AI-driven dermatology solutions or iDoc Academy. Your answer ${feedback[i] && feedback[i].toLowerCase().includes('correct') ? 'demonstrated good knowledge' : 'could include more details'} about our core operations.<br>`;
+              summaryText += `Reference: This question ties to UBIK Solutions' mission or services, such as AI-driven dermatology or iDoc Academy. Your answer ${feedback[i].toLowerCase().includes('correct') ? 'demonstrated good knowledge' : 'could include more details'} about these areas.<br>`;
             }
           } else {
-            summaryText += `Reference: Skipping this question missed an opportunity to showcase knowledge about UBIK Solutions' offerings. Reviewing our JSON data could help! 😊<br>`;
+            summaryText += `Reference: Skipping this question missed an opportunity to demonstrate knowledge. Reviewing UBIK Solutions’ data could help.<br>`;
           }
           summaryText += `<br>`;
         }
 
-        summaryText += `<strong>Next Steps</strong><br>`;
-        summaryText += `To deepen your understanding of UBIK Solutions, consider exploring our product categories (e.g., Anti-Acne, Anti-Ageing) or our mission to leverage AI in dermatology. Feel free to retake the quiz or ask for more details about specific products or services! 😄`;
+        // Recommendations
+        summaryText += `<strong>Recommendations for Growth</strong><br>`;
+        if (avg >= 0.8) {
+          summaryText += `Your strong performance indicates a solid understanding of UBIK Solutions. To maintain and expand your knowledge, consider exploring advanced topics, such as the technical aspects of AI in dermatology or the formulation of products like Sebogel and Reti K Cream.<br>`;
+        } else if (avg >= 0.5) {
+          summaryText += `You have a good foundation in UBIK Solutions’ offerings. To improve, study key areas such as Anti-Acne and Anti-Ageing product details or the role of AI in our services. Reviewing the UBIK Solutions website or training materials can help.<br>`;
+        } else {
+          summaryText += `Your performance suggests a need for deeper familiarity with UBIK Solutions. Focus on understanding our core products (e.g., Anti-Acne, Anti-Ageing) and services (e.g., AI dermatology, iDoc Academy). Retaking the quiz after reviewing our data is recommended.<br>`;
+        }
+        summaryText += `For further learning, explore UBIK Solutions’ official resources or contact our training team for detailed product and service information.<br>`;
 
         document.getElementById('summary-report').style.display = 'block';
         document.getElementById('summary-content').innerHTML = summaryText;
@@ -649,11 +694,6 @@
         submitAnswer();
       }
     });
-
-    synth.onvoiceschanged = () => {
-      const voices = synth.getVoices();
-      console.log('Voices loaded:', voices.map(v => ({ name: v.name, lang: v.lang })));
-    };
   </script>
-</body> 
+</body>
 </html>
