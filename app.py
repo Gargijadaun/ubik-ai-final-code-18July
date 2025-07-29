@@ -145,6 +145,37 @@ def evaluate_answer():
             'score': 0.0
         })
 
+@app.route('/api/quiz-questions', methods=['GET'])
+def get_quiz_questions():
+    try:
+        context_data = json.dumps(ubik_info, indent=2)
+        prompt = f"""
+        You are an official representative of UBIK Solutions.
+        Reference data about UBIK:
+        {context_data}
+        Generate 5 open-ended quiz questions based on the provided UBIK Solutions data, focusing on services, mission, or product categories (e.g., Anti-Acne, Anti-Ageing). Each question should start with 'How', 'What', or 'Why'. Return the questions as a JSON array, e.g., ["question1", "question2", ...].
+        """
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        print("Quiz Questions API response:", response.text)
+
+        questions = json.loads(response.text.strip()) if response.text.strip().startswith('[') else [
+            "How does UBIK Solutions leverage AI for dermatology applications?",
+            "What are the key services offered by UBIK Solutions?",
+            "Why is UBIK Solutions' approach to dermatology unique?",
+            "What are the benefits of UBIK Solutions' Anti-Acne products?",
+            "How do UBIK Solutions' Anti-Ageing products work?"
+        ]
+        return jsonify(questions[:5])
+    except Exception as e:
+        print("Error generating quiz questions:", e)
+        return jsonify([
+            "How does UBIK Solutions leverage AI for dermatology applications?",
+            "What are the key services offered by UBIK Solutions?",
+            "Why is UBIK Solutions' approach to dermatology unique?",
+            "What are the benefits of UBIK Solutions' Anti-Acne products?",
+            "How do UBIK Solutions' Anti-Ageing products work?"
+        ])
 # Chatbot API with UBIK JSON info
 # Chatbot API with UBIK JSON info
 @app.route('/api/chat', methods=['POST'])
