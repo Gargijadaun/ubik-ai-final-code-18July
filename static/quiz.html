@@ -93,37 +93,42 @@
     }
     .input-area {
       display: flex;
-      align-items: center;
+      flex-direction: column;
       background: #f9f9f9;
       border: 1px solid #ddd;
-      border-radius: 30px;
-      padding: 8px 12px;
+      border-radius: 12px;
+      padding: 12px;
     }
-    .input-area textarea {
-      flex: 1;
+    .input-area .options {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .input-area .option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .input-area input[type="radio"] {
+      margin: 0;
+    }
+    .input-area label {
       font-size: 16px;
-      background: transparent;
-      font-family: 'Roboto', sans-serif;
-      border: none;
-      outline: none;
-      resize: none;
-      height: 50px;
     }
     .input-area button {
       background: #E91E63;
       border: none;
-      border-radius: 50%;
-      width: 36px;
-      height: 36px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-left: 5px;
+      border-radius: 8px;
+      padding: 10px;
+      color: white;
+      font-weight: 500;
+      font-size: 14px;
       cursor: pointer;
+      align-self: flex-end;
     }
-    .input-area img {
-      width: 20px;
-      height: 20px;
+    .input-area button:hover {
+      background-color: #d81b60;
     }
     .nav-buttons {
       display: flex;
@@ -173,7 +178,7 @@
     }
     #waveform {
       display: none;
-      margin-left: 10px;
+      margin-top: 10px;
     }
     #waveform .dot {
       width: 12px;
@@ -218,8 +223,8 @@
         <p id="questionText">Loading question...</p>
       </div>
       <div class="input-area">
-        <textarea id="answerInput" placeholder="Type your answer or use voice..."></textarea>
-        <button onclick="submitAnswer()"><img src="/static/send.png" alt="Send"></button>
+        <div id="options" class="options"></div>
+        <button onclick="submitAnswer()">Submit</button>
         <div id="waveform"><div class="dot"></div></div>
       </div>
       <div id="results" class="results">
@@ -431,29 +436,12 @@
     }
     initAvatar();
 
-    const synth = window.speechSynthesis;
-    let preferredVoiceName = 'Microsoft David Desktop';
-
-    function getPreferredVoice() {
-      const voices = synth.getVoices();
-      console.log('Available voices:', voices.map(v => ({ name: v.name, lang: v.lang })));
-      const maleVoice = voices.find(v => v.name === preferredVoiceName) ||
-                       voices.find(v => /david|mark|male|guy|daniel|richard|george|adam|clyde/i.test(v.name)) ||
-                       voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang) && !/zira|female|woman|eva|emma|susan|aria|jenny|allison|ava/i.test(v.name));
-      if (!maleVoice) {
-        console.warn('No male voice available, selecting default voice');
-        return voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang)) || voices[0];
-      }
-      console.log('Selected male voice:', maleVoice.name);
-      return maleVoice;
-    }
-
     async function speakWithElevenLabs(text) {
       try {
         const response = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice_id: 'pNInz6obpgDQGcFmaJgB' }) // Clyde male voice
+          body: JSON.stringify({ text, voice_id: 'pNInz6obpgDQGcFmaJgB' })
         });
         if (!response.ok) {
           const errorData = await response.json();
@@ -477,22 +465,6 @@
       } catch (error) {
         console.error('TTS error:', error.message);
         document.getElementById('questionText').textContent += ` (Voice service failed: ${error.message})`;
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'en-US';
-        utterance.rate = 1.0;
-        const voice = getPreferredVoice();
-        if (voice) utterance.voice = voice;
-        utterance.onstart = () => {
-          isSpeaking = true;
-          playTalkingAnimation();
-          startMouthAnimation();
-        };
-        utterance.onend = () => {
-          isSpeaking = false;
-          stopTalkingAnimation();
-          stopMouthAnimation();
-        };
-        window.speechSynthesis.speak(utterance);
       }
     }
 
@@ -502,21 +474,49 @@
       speakWithElevenLabs(noEmojiText);
     }
 
-    synth.onvoiceschanged = () => {
-      const voice = getPreferredVoice();
-      console.log('Selected voice on voiceschanged:', voice?.name || 'None');
-    };
+    function correctSpelling(userInput) {
+      let inputLower = userInput.toLowerCase();
+      const corrections = {
+        'ubeek': 'UBIK',
+        'ubiik': 'UBIK',
+        'youbik': 'UBIK',
+        'ethiglo': 'EthiGlo',
+        'ethi glo': 'EthiGlo',
+        'ethiglow': 'EthiGlo',
+        'ethigloo': 'EthiGlo',
+        'sisonext': 'SisoNext',
+        'tehnology': 'technology',
+        'wat': 'what',
+        'prodacts': 'products',
+        'soultion': 'solution'
+      };
+      for (let wrong in corrections) {
+        const pattern = new RegExp(`\\b${wrong}\\b`, 'gi');
+        inputLower = inputLower.replace(pattern, corrections[wrong]);
+      }
+      return inputLower.charAt(0).toUpperCase() + inputLower.slice(1);
+    }
 
     function displayQuestion() {
       if (currentQuestion < totalQuestions && questions[currentQuestion]) {
         document.getElementById('questionNumber').textContent = currentQuestion + 1;
-        document.getElementById('questionText').textContent = questions[currentQuestion];
-        speakQuestion(questions[currentQuestion]);
-        document.getElementById('answerInput').value = '';
+        document.getElementById('questionText').textContent = questions[currentQuestion].question;
+        const optionsDiv = document.getElementById('options');
+        optionsDiv.innerHTML = '';
+        questions[currentQuestion].options.forEach((option, index) => {
+          const optionDiv = document.createElement('div');
+          optionDiv.className = 'option';
+          optionDiv.innerHTML = `
+            <input type="radio" name="answer" id="option${index}" value="${option}">
+            <label for="option${index}">${option}</label>
+          `;
+          optionsDiv.appendChild(optionDiv);
+        });
+        speakQuestion(questions[currentQuestion].question);
         document.getElementById('results').style.display = 'none';
         document.getElementById('summary-report').style.display = 'none';
         document.getElementById('question-area').style.display = 'block';
-        document.getElementById('answerInput').parentElement.style.display = 'flex';
+        document.getElementById('options').parentElement.style.display = 'flex';
       } else {
         evaluateQuiz();
       }
@@ -524,20 +524,29 @@
 
     function repeatQuestion() {
       if (currentQuestion < totalQuestions && questions[currentQuestion]) {
-        speakQuestion(questions[currentQuestion]);
+        speakQuestion(questions[currentQuestion].question);
       }
     }
 
     function submitAnswer() {
-      const answer = document.getElementById('answerInput').value.trim();
-      if (!answer) return;
-      answers.push({ question: questions[currentQuestion], answer });
+      const selectedOption = document.querySelector('input[name="answer"]:checked');
+      if (!selectedOption) return;
+      const answer = correctSpelling(selectedOption.value);
+      answers.push({
+        question: questions[currentQuestion].question,
+        answer,
+        options: questions[currentQuestion].options
+      });
       currentQuestion++;
       displayQuestion();
     }
 
     function skipQuestion() {
-      answers.push({ question: questions[currentQuestion], answer: 'SKIPPED' });
+      answers.push({
+        question: questions[currentQuestion].question,
+        answer: 'SKIPPED',
+        options: questions[currentQuestion].options
+      });
       currentQuestion++;
       displayQuestion();
     }
@@ -556,19 +565,13 @@
     }
 
     recognition.onresult = function(event) {
-      let transcript = event.results[0][0].transcript.toLowerCase();
-      const replacements = {
-        'cubic': 'ubik',
-        'you big': 'ubik',
-        'q big': 'ubik',
-        'ubiq': 'ubik',
-        'Rubik': 'ubik',
-      };
-      for (let wrong in replacements) {
-        const pattern = new RegExp(`\\b${wrong}\\b`, 'gi');
-        transcript = transcript.replace(pattern, replacements[wrong]);
-      }
-      document.getElementById('answerInput').value = transcript;
+      let transcript = event.results[0][0].transcript;
+      transcript = correctSpelling(transcript);
+      const options = questions[currentQuestion].options;
+      const closestOption = options.reduce((prev, curr) =>
+        Math.abs(curr.toLowerCase().indexOf(transcript.toLowerCase())) < Math.abs(prev.toLowerCase().indexOf(transcript.toLowerCase())) ? curr : prev
+      );
+      document.querySelector(`input[value="${closestOption}"]`).checked = true;
       submitAnswer();
       isListening = false;
       document.getElementById('waveform').style.display = 'none';
@@ -592,12 +595,7 @@
         return res.json();
       })
       .then(data => {
-        questions = data.map(q => {
-          if (!q.startsWith('How') && !q.startsWith('What') && !q.startsWith('Why')) {
-            return `How does UBIK Solutions ensure ${q.toLowerCase()}?`;
-          }
-          return q;
-        });
+        questions = data;
         console.log('Fetched questions:', questions);
         displayQuestion();
       }).catch(err => {
@@ -607,7 +605,7 @@
 
     async function evaluateQuiz() {
       document.getElementById('question-area').style.display = 'none';
-      document.getElementById('answerInput').parentElement.style.display = 'none';
+      document.getElementById('options').parentElement.style.display = 'none';
       document.getElementById('results').style.display = 'none';
       document.getElementById('summary-report').style.display = 'block';
 
@@ -617,12 +615,12 @@
       summaryText += `<strong>Overall Performance</strong><br>`;
 
       for (let i = 0; i < answers.length; i++) {
-        const { question, answer } = answers[i];
+        const { question, answer, options } = answers[i];
         try {
           const response = await fetch('/api/evaluate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question, answer })
+            body: JSON.stringify({ question, answer, options })
           });
           const data = await response.json();
           console.log(`Evaluation response for Q${i + 1}:`, data);
@@ -632,24 +630,13 @@
             summaryText += `<strong>Question ${i + 1}: ${question}</strong><br>`;
             summaryText += `Your Answer: ${answer === 'SKIPPED' ? 'Skipped' : answer}<br>`;
             summaryText += `Feedback: ${data.feedback}<br>`;
-            summaryText += `Score: ${data.score.toFixed(2)}<br>`;
-            if (answer !== 'SKIPPED') {
-              if (question.toLowerCase().includes('anti-acne') || question.toLowerCase().includes('ingredients')) {
-                summaryText += `Reference: This question relates to UBIK Solutions' Anti-Acne products, such as Sebogel with Salicylic Acid and Niacinamide. Your answer ${data.feedback.toLowerCase().includes('correct') ? 'aligned well' : 'could better align'} with these details.<br>`;
-              } else if (question.toLowerCase().includes('anti-ageing') || question.toLowerCase().includes('aging')) {
-                summaryText += `Reference: This question relates to UBIK Solutions' Anti-Ageing products, such as Reti K Cream with Encapsulated Retinol. Your answer ${data.feedback.toLowerCase().includes('correct') ? 'aligned well' : 'could better align'} with these details.<br>`;
-              } else {
-                summaryText += `Reference: This question ties to UBIK Solutions' mission or services, such as AI-driven dermatology or iDoc Academy. Your answer ${data.feedback.toLowerCase().includes('correct') ? 'demonstrated good knowledge' : 'could include more details'} about these areas.<br>`;
-              }
-            } else {
-              summaryText += `Reference: Skipping this question missed an opportunity to demonstrate knowledge. Reviewing UBIK Solutions’ data could help.<br>`;
-            }
-            summaryText += `<br>`;
+            summaryText += `Score: ${(data.score * 10).toFixed(2)}/10<br>`;
+            summaryText += `Reference: ${data.reference || 'Refer to UBIK Solutions’ official resources for more details.'}<br><br>`;
           } else {
             summaryText += `<strong>Question ${i + 1}: ${question}</strong><br>`;
             summaryText += `Your Answer: ${answer === 'SKIPPED' ? 'Skipped' : answer}<br>`;
             summaryText += `Feedback: Error evaluating answer; please try again.<br>`;
-            summaryText += `Score: 0<br>`;
+            summaryText += `Score: 0/10<br>`;
             summaryText += `Reference: Unable to evaluate due to API error.<br><br>`;
           }
         } catch (err) {
@@ -657,7 +644,7 @@
           summaryText += `<strong>Question ${i + 1}: ${question}</strong><br>`;
           summaryText += `Your Answer: ${answer === 'SKIPPED' ? 'Skipped' : answer}<br>`;
           summaryText += `Feedback: Error evaluating answer; please try again.<br>`;
-          summaryText += `Score: 0<br>`;
+          summaryText += `Score: 0/10<br>`;
           summaryText += `Reference: Unable to evaluate due to API error.<br><br>`;
         }
       }
@@ -729,13 +716,6 @@
 
       document.getElementById('summary-content').innerHTML = summaryText;
     }
-
-    document.getElementById('answerInput').addEventListener('keydown', function(event) {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        submitAnswer();
-      }
-    });
   </script>
 </body>
 </html>
