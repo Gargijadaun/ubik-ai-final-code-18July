@@ -242,6 +242,7 @@
     let rootBone = null;
     let morphDict, morphInfluences;
     let isSpeaking = false;
+    let isListening = false;
 
     function loadModelAnimations(gltf) {
       mixer = new THREE.AnimationMixer(gltf.scene);
@@ -424,20 +425,34 @@
       });
     }
     initAvatar();
+    const synth = window.speechSynthesis;
+    let preferredVoiceName = 'Microsoft David Desktop'; // Male voice for fallback
 
-    let currentQuestion = 0;
-    let questions = [];
-    let answers = {};
-    const totalQuestions = 5;
+    function getPreferredVoice() {
+      const voices = synth.getVoices();
+      console.log('Available voices:', voices.map(v => ({ name: v.name, lang: v.lang })));
+      const maleVoice = voices.find(v => v.name === preferredVoiceName) ||
+                      voices.find(v => /david|mark|male|guy|daniel|richard|george|adam|clyde/i.test(v.name)) ||
+                      voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang) && !/zira|female|woman|eva|emma|susan|aria|jenny|allison|ava/i.test(v.name));
+      if (!maleVoice) {
+        console.warn('No male voice available, selecting default voice');
+        return voices.find(v => /en-US|en-GB|en-AU/i.test(v.lang)) || voices[0];
+      }
+      console.log('Selected male voice:', maleVoice.name);
+      return maleVoice;
+    }
 
     async function speakWithElevenLabs(text) {
       try {
         const response = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
+          body: JSON.stringify({ text, voice_id: 'pNInz6obpgDQGcFmaJgB' }) // Clyde male voice
         });
-        if (!response.ok) throw new Error('TTS request failed');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(`TTS request failed: ${errorData.error || response.statusText}`);
+        }
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
@@ -451,17 +466,40 @@
           isSpeaking = false;
           stopTalkingAnimation();
           stopMouthAnimation();
+          URL.revokeObjectURL(audioUrl); // Clean up
         };
       } catch (error) {
-        console.error('TTS error:', error);
-        document.getElementById('questionText').textContent += ' (Failed to speak question)';
+        console.error('TTS error:', error.message);
+        document.getElementById('questionText').textContent += ` (Voice service failed: ${error.message})`;
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-US';
+        utterance.rate = 1.0;
+        const voice = getPreferredVoice();
+        if (voice) utterance.voice = voice;
+        utterance.onstart = () => {
+          isSpeaking = true;
+          playTalkingAnimation();
+          startMouthAnimation();
+        };
+        utterance.onend = () => {
+          isSpeaking = false;
+          stopTalkingAnimation();
+          stopMouthAnimation();
+        };
+        window.speechSynthesis.speak(utterance);
       }
     }
 
     function speakQuestion(text) {
       if (!text || typeof text !== "string") return;
-      speakWithElevenLabs(text);
+      const noEmojiText = text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
+      speakWithElevenLabs(noEmojiText);
     }
+
+    synth.onvoiceschanged = () => {
+      const voice = getPreferredVoice();
+      console.log('Selected voice on voiceschanged:', maleVoice?.name || 'None');
+    };
 
     function switchTab(tab) {
       const assistBtn = document.getElementById('assistBtn');
