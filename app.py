@@ -4,6 +4,7 @@ import os
 import json
 import google.generativeai as genai
 from dotenv import load_dotenv
+import requests  # Added for ElevenLabs API
 
 # Load environment variables
 load_dotenv()
@@ -13,6 +14,11 @@ api_key = "AIzaSyCCz5Vrv76PE01k4ENPnhBYmgP-qcnbAJg"
 if not api_key:
     raise ValueError("GOOGLE_API_KEY is not set.")
 genai.configure(api_key=api_key)
+
+# Set ElevenLabs API key
+ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
+if not ELEVENLABS_API_KEY:
+    raise ValueError("ELEVENLABS_API_KEY is not set.")
 
 # Load UBIK reference data from JSON
 with open('ubik_data.json', 'r', encoding='utf-8') as f:
@@ -29,7 +35,7 @@ IMPORTANT: Always provide the best suitable answer possible based on the provide
 IMPORTANT - UBIK'S WEBSITE IS https://www.ubiksolution.com
 
 CORE OPERATIONAL DIRECTIVES:
-[...same content you had above... for brevity, keep the full content here unchanged...]
+[...same content as provided...]
 """
 
 # Spelling correction for internal use only
@@ -145,6 +151,7 @@ def evaluate_answer():
             'score': 0.0
         })
 
+# Quiz questions (alternative endpoint)
 @app.route('/api/quiz-questions', methods=['GET'])
 def get_quiz_questions():
     try:
@@ -176,7 +183,37 @@ def get_quiz_questions():
             "What are the benefits of UBIK Solutions' Anti-Acne products?",
             "How do UBIK Solutions' Anti-Ageing products work?"
         ])
-# Chatbot API with UBIK JSON info
+
+# Text-to-speech endpoint for ElevenLabs
+@app.route('/api/tts', methods=['POST'])
+def text_to_speech():
+    try:
+        data = request.get_json()
+        text = data.get('text', '')
+        voice_id = data.get('voice_id', 'pNInz6obpgDQGcFmaJgB')  # Default to Clyde (male voice)
+        if not text:
+            return jsonify({'error': 'No text provided'}), 400
+        response = requests.post(
+            f'https://api.elevenlabs.io/v1/text-to-speech/{voice_id}',
+            headers={
+                'xi-api-key': ELEVENLABS_API_KEY,
+                'Content-Type': 'application/json'
+            },
+            json={
+                'text': text,
+                'model_id': 'eleven_multilingual_v2',
+                'voice_settings': {
+                    'stability': 0.5,
+                    'similarity_boost': 0.75
+                }
+            }
+        )
+        if response.status_code != 200:
+            return jsonify({'error': response.text}), response.status_code
+        return response.content, 200, {'Content-Type': 'audio/mpeg'}
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # Chatbot API with UBIK JSON info
 @app.route('/api/chat', methods=['POST'])
 def chatbot_reply():
@@ -221,7 +258,6 @@ Instructions:
 
     print("Sending reply:", reply)
     return jsonify({"reply": reply})
-
 
 # Start server
 if __name__ == "__main__":
