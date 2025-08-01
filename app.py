@@ -10,7 +10,7 @@ import requests
 load_dotenv()
 
 # Set Gemini API key
-api_key = "AIzaSyAdgG1y_NsrJ6EjPe_ya8UR79dUCPDup6c"
+api_key = "AIzaSyCCz5Vrv76PE01k4ENPnhBYmgP-qcnbAJg"
 if not api_key:
     raise ValueError("GOOGLE_API_KEY is not set.")
 genai.configure(api_key=api_key)
@@ -63,72 +63,33 @@ def static_files(path):
 @app.route('/api/quiz-questions', methods=['GET'])
 def get_quiz_questions():
     try:
-        questions = ubik_info.get('questions', [
-            {
-                "question": "What is the main ingredient in UBIK Solutions' Sebogel?",
-                "options": ["Salicylic Acid", "Hyaluronic Acid", "Retinol", "Vitamin C"],
-                "correct": "Salicylic Acid",
-                "reference": "Sebogel contains Salicylic Acid and Niacinamide for anti-acne treatment."
-            },
-            {
-                "question": "Which product is part of UBIK Solutions' Anti-Ageing line?",
-                "options": ["Sebogel", "Reti K Cream", "EthiGlo Serum", "SisoNext Cleanser"],
-                "correct": "Reti K Cream",
-                "reference": "Reti K Cream with Encapsulated Retinol is a key Anti-Ageing product."
-            },
-            {
-                "question": "What technology does UBIK Solutions use for dermatology?",
-                "options": ["Blockchain", "AI", "Virtual Reality", "Quantum Computing"],
-                "correct": "AI",
-                "reference": "UBIK Solutions leverages AI for dermatology applications and services."
-            },
-            {
-                "question": "What is a key feature of UBIK Solutions' iDoc Academy?",
-                "options": ["Gaming", "Dermatology Training", "Financial Planning", "Cooking Classes"],
-                "correct": "Dermatology Training",
-                "reference": "iDoc Academy provides specialized dermatology training programs."
-            },
-            {
-                "question": "Which brand is a subsidiary of UBIK Solutions?",
-                "options": ["Nike", "EthiGlo", "Apple", "Samsung"],
-                "correct": "EthiGlo",
-                "reference": "EthiGlo is a subsidiary brand under UBIK Solutions."
-            }
-        ])
+        context_data = json.dumps(ubik_info, indent=2)
+        prompt = f"""
+        You are an official representative of UBIK Solutions.
+        Reference data about UBIK:
+        {context_data}
+        Generate 5 unique open-ended quiz questions based on the provided UBIK Solutions data, focusing on services, mission, or product categories (e.g., Anti-Acne, Anti-Ageing). Each question should start with 'How', 'What', or 'Why'. Return the questions as a JSON array, e.g., ["question1", "question2", ...]. Ensure questions are different each time.
+        """
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        print("Quiz Questions API response:", response.text)
+
+        questions = json.loads(response.text.strip()) if response.text.strip().startswith('[') else [
+            "How does UBIK Solutions leverage AI for dermatology applications?",
+            "What are the key ingredients in UBIK Solutions' Sebogel?",
+            "Why is UBIK Solutions' approach to dermatology unique?",
+            "What are the benefits of UBIK Solutions' Anti-Ageing products?",
+            "How does UBIK Solutions ensure quality in their products?"
+        ]
         return jsonify(questions[:5])
     except Exception as e:
         print("Error generating quiz questions:", e)
         return jsonify([
-            {
-                "question": "What is the main ingredient in UBIK Solutions' Sebogel?",
-                "options": ["Salicylic Acid", "Hyaluronic Acid", "Retinol", "Vitamin C"],
-                "correct": "Salicylic Acid",
-                "reference": "Sebogel contains Salicylic Acid and Niacinamide for anti-acne treatment."
-            },
-            {
-                "question": "Which product is part of UBIK Solutions' Anti-Ageing line?",
-                "options": ["Sebogel", "Reti K Cream", "EthiGlo Serum", "SisoNext Cleanser"],
-                "correct": "Reti K Cream",
-                "reference": "Reti K Cream with Encapsulated Retinol is a key Anti-Ageing product."
-            },
-            {
-                "question": "What technology does UBIK Solutions use for dermatology?",
-                "options": ["Blockchain", "AI", "Virtual Reality", "Quantum Computing"],
-                "correct": "AI",
-                "reference": "UBIK Solutions leverages AI for dermatology applications and services."
-            },
-            {
-                "question": "What is a key feature of UBIK Solutions' iDoc Academy?",
-                "options": ["Gaming", "Dermatology Training", "Financial Planning", "Cooking Classes"],
-                "correct": "Dermatology Training",
-                "reference": "iDoc Academy provides specialized dermatology training programs."
-            },
-            {
-                "question": "Which brand is a subsidiary of UBIK Solutions?",
-                "options": ["Nike", "EthiGlo", "Apple", "Samsung"],
-                "correct": "EthiGlo",
-                "reference": "EthiGlo is a subsidiary brand under UBIK Solutions."
-            }
+            "How does UBIK Solutions leverage AI for dermatology applications?",
+            "What are the key ingredients in UBIK Solutions' Sebogel?",
+            "Why is UBIK Solutions' approach to dermatology unique?",
+            "What are the benefits of UBIK Solutions' Anti-Ageing products?",
+            "How does UBIK Solutions ensure quality in their products?"
         ])
 
 # Answer evaluation
@@ -137,35 +98,22 @@ def evaluate_answer():
     data = request.get_json()
     question = data.get('question', '')
     answer = data.get('answer', '')
-    options = data.get('options', [])
 
     print(f"Evaluating question: {question}")
     print(f"Answer: {answer}")
-    print(f"Options: {options}")
 
     try:
         context_data = json.dumps(ubik_info, indent=2)
-        correct_answer = next((q['correct'] for q in ubik_info.get('questions', []) if q['question'] == question), None)
-        reference = next((q['reference'] for q in ubik_info.get('questions', []) if q['question'] == question), 'Refer to UBIK Solutions’ official resources.')
-
-        if answer == 'SKIPPED':
-            return jsonify({
-                'feedback': 'Question skipped.',
-                'score': 0.0,
-                'reference': reference
-            })
-
         prompt = f"""
         You are an official representative of UBIK Solutions.
         Reference data about UBIK:
         {context_data}
-        Evaluate the following answer to the multiple-choice question: '{question}'
-        Options: {options}
-        Correct answer: {correct_answer}
-        User answer: '{answer}'
-        Provide feedback on the correctness and relevance of the answer. 
+        Evaluate the following answer to the open-ended question: '{question}'
+        Answer: '{answer}'
+        Provide feedback on the correctness and completeness of the answer based on the reference data. 
         Return a JSON object with 'feedback' (string), 'score' (float, 0 to 1), and 'reference' (string).
-        Score 1.0 for correct answer, 0.0 for incorrect or skipped, 0.5 for partially relevant answers.
+        Score 1.0 for fully correct and complete answers, 0.5–0.8 for partially correct answers with relevant keywords, 0.0 for incorrect or skipped answers.
+        Include a reference to specific UBIK products, services, or mission from the data.
         """
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
@@ -179,13 +127,13 @@ def evaluate_answer():
             if not 0 <= evaluation['score'] <= 1:
                 evaluation['score'] = 0.0
                 evaluation['feedback'] = "Invalid score returned; please try again."
-            evaluation['reference'] = reference
+            evaluation['reference'] = evaluation.get('reference', 'Refer to UBIK Solutions’ official resources.')
         except Exception as e:
             print("Parse error:", e)
             evaluation = {
                 'feedback': "Unable to evaluate due to format issue. Please try again with a clear answer.",
                 'score': 0.0,
-                'reference': reference
+                'reference': 'Refer to UBIK Solutions’ official resources.'
             }
 
         return jsonify(evaluation)
@@ -194,7 +142,7 @@ def evaluate_answer():
         return jsonify({
             'feedback': "Error evaluating answer. Please try again later.",
             'score': 0.0,
-            'reference': reference
+            'reference': 'Refer to UBIK Solutions’ official resources.'
         })
 
 # Text-to-speech endpoint for ElevenLabs
